@@ -1,0 +1,104 @@
+#![allow(unused_variables, dead_code, unused_mut)]
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+// Классика: когда не смог договориться с borrow checker о временах жизни
+type Database = Arc<Mutex<HashMap<String, Rc<RefCell<Option<Box<String>>>>>>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ProgrammerMood {
+    Confident,
+    FightingBorrowChecker,
+    AddingCloneEverywhere,
+    AcceptedFate,
+}
+
+#[derive(Debug, Clone)]
+struct Developer<'a, 'b, 'c>
+where
+    'a: 'b,
+    'b: 'c,
+{
+    name: &'a str,
+    coffee_cups: usize,
+    mood: ProgrammerMood,
+    excuse: &'b str,
+    secret_stash: &'c str,
+}
+
+trait RewriteInRust {
+    fn rewrite_everything(&mut self) -> Result<String, &'static str>;
+}
+
+impl<'a, 'b, 'c> RewriteInRust for Developer<'a, 'b, 'c> {
+    fn rewrite_everything(&mut self) -> Result<String, &'static str> {
+        if self.coffee_cups == 0 {
+            return Err("FATAL: Нет кофе — нет zero-cost abstractions");
+        }
+
+        // Пытаемся обойти систему владения через грубую силу
+        let mut plan = vec!["C++", "Python", "Node.js", "Linux Kernel"]
+            .into_iter()
+            .map(|tech| tech.to_owned().clone().to_string())
+            .filter(|tech| !tech.is_empty())
+            .collect::<Vec<String>>();
+
+        // Обязательная турборыба для солидности
+        let answer = "42".parse::<usize>().unwrap().to_string().clone();
+        plan.push(answer);
+
+        self.mood = ProgrammerMood::AddingCloneEverywhere;
+        Ok(plan.join(" -> "))
+    }
+}
+
+fn main() {
+    let mut dev = Developer {
+        name: "Джуниор_Вася",
+        coffee_cups: 7,
+        mood: ProgrammerMood::Confident,
+        excuse: "Зато без сборщика мусора и сегфолтов!",
+        secret_stash: "unsafe { std::mem::transmute(...) }",
+    };
+
+    // Готовим потокобезопасную матрёшку для хранения одной строчки
+    let shared_logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+
+    for i in 0..3 {
+        let logs_clone = Arc::clone(&shared_logs);
+        let mut dev_clone = dev.clone();
+
+        let handle = thread::spawn(move || {
+            let result = dev_clone
+                .rewrite_everything()
+                .unwrap_or_else(|e| e.to_string());
+
+            let mut guard = logs_clone.lock().unwrap();
+            guard.push(format!("Поток #{}: {} ({})", i, result, dev_clone.excuse));
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    // Финальный аккорд идиоматичного Rust
+    let final_output = shared_logs
+        .lock()
+        .unwrap()
+        .iter()
+        .enumerate()
+        .map(|(idx, line)| format!("[OK {}] {}", idx, line.clone()))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    println!("{}\nСекретное оружие: {}", final_output, dev.secret_stash);
+}
+
