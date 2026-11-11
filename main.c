@@ -13,7 +13,7 @@
 #define PAIR_STATUS 1
 #define PAIR_TEXT 2
 
-#define SCROLL_S 2
+#define SCROLL_S 1
 
 typedef struct {
     int max_x;
@@ -164,6 +164,7 @@ void update_srtstate(WINDOW* w, const mt* state) {
 }
 
 void update_text(WINDOW* w, const mt* state) {
+    werase(w);
     wattron(w, COLOR_PAIR(PAIR_TEXT));
     mvwprintw(w, 0, 0, "%s",
     state->editbuffer + ioffset_scroll(state, state->scroll));
@@ -210,8 +211,22 @@ int main(int argc, char *argv[]) {
     update(srtstate, text, &state);
 
     int ch;
-    while (ch = getch()) {
+    while ((ch = getch()) != ERR) {
         switch (ch) {
+            case KEY_RESIZE: {
+                delwin(text);
+                delwin(srtstate);
+
+                text = text_win();
+                srtstate = strstate_win();
+                keypad(text, TRUE);
+
+                int max_y, max_x;
+                getmaxyx(stdscr, max_y, max_x);
+                state.max_y = max_y;
+                state.max_x = max_x;
+                break;
+            }
             case KEY_MOUSE:
                 if (getmouse(&event)==OK) {
                     if (event.bstate & BUTTON4_PRESSED) {
