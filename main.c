@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,7 +103,7 @@ static void force_direct_term(void) {
     }
 }
 
-int ioffset_scroll(const mt* state, int stn) {
+size_t ioffset_scroll(const mt* state, int stn) {
     // returns offset of the first char of line stn (0-based)
     const char* eb = state->editbuffer;
     if (eb == NULL || stn <= 0) {
