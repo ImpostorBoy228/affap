@@ -11,8 +11,9 @@
 #define TEXT_BG 0x271F30
 
 #define PAIR_STATUS 1
-#define PAIR_TEXT   2
+#define PAIR_TEXT 2
 
+#define SCROLL_S 2
 
 typedef struct {
     int max_x;
@@ -20,10 +21,13 @@ typedef struct {
 
     int cur_x;
     int cur_y;
+    int scroll;
 
     char* editbuffer;
+    const char* path;
 } mt;
 
+// utility
 char* fileread(const char* f) {
     FILE* file = fopen(f, "rb");
     if (file == NULL) {
@@ -52,11 +56,17 @@ char* fileread(const char* f) {
     return buffer;
 }
 
-mt bootstap_mt(WINDOW* w, const char* f) {
+void bootstap_mt(mt* state, WINDOW* w, const char* f) {
     int row, col;
     getmaxyx(w, row, col);
-    mt res = {.max_x = col, .max_y = row, .cur_y = 0, .cur_x = 0, .editbuffer = fileread(f)};
-    return res;
+    *state = (mt){
+        .max_x = col,
+        .max_y = row,
+        .cur_y = 0,
+        .cur_x = 0,
+        .path = f,
+        .editbuffer = fileread(f),
+    };
 }
 
 static void init_custom_pair(short pair, int fg, int bg) {
@@ -69,42 +79,6 @@ static void init_colors(void) {
 
     init_custom_pair(PAIR_STATUS, STATUS_FG, STATUS_BG);
     init_custom_pair(PAIR_TEXT, TEXT_FG, TEXT_BG);
-}
-
-WINDOW* text_win(void) {
-    int max_y, max_x;
-    getmaxyx(stdscr, max_y, max_x);
-
-    WINDOW *text_win = newwin(max_y - 1, max_x, 0, 0);
-
-    wbkgd(text_win, ' ' | COLOR_PAIR(PAIR_TEXT));
-
-    return text_win;
-}
-
-WINDOW* strstate_win(void) {
-    int max_y, max_x;
-    getmaxyx(stdscr, max_y, max_x);
-
-    WINDOW *status_win = newwin(1, max_x, max_y - 1, 0);
-
-    wbkgd(status_win, ' ' | COLOR_PAIR(PAIR_STATUS));
-
-    return status_win;
-}
-
-void update_srtstate(WINDOW* w, const char* path) {
-    wattron(w, COLOR_PAIR(PAIR_STATUS));
-    mvwprintw(w, 0, 0, "%-*s", getmaxx(w), path);
-    wattroff(w, COLOR_PAIR(PAIR_STATUS));
-    wrefresh(w);
-}
-
-void update_text(WINDOW* w, const char* eb) {
-    wattron(w, COLOR_PAIR(PAIR_TEXT));
-    mvwprintw(w, 0, 0, "%s", eb);
-    wattroff(w, COLOR_PAIR(PAIR_TEXT));
-    wrefresh(w);
 }
 
 static void force_direct_term(void) {
@@ -128,6 +102,79 @@ static void force_direct_term(void) {
     }
 }
 
+int ioffset_scroll(const mt* state, int stn) {
+    // returns offset of the first char of line stn (0-based)
+    const char* eb = state->editbuffer;
+    if (eb == NULL || stn <= 0) {
+        return 0;
+    }
+
+    int curstn = 0;
+    for (int i = 0; eb[i] != '\0'; ++i) {
+        if (eb[i] == '\n' && ++curstn == stn) {
+            return i + 1; // next char after \n
+        }
+    }
+    return 0;
+}
+
+int line_count(const mt* state) {
+    const char* eb = state->editbuffer;
+    if (eb == NULL) {
+        return 1;
+    }
+
+    int lines = 1;
+    for (const char* p = eb; *p != '\0'; ++p) {
+        if (*p == '\n') {
+            lines++;
+        }
+    }
+    return lines;
+}
+
+// ncurses helpers
+WINDOW* text_win(void) {
+    int max_y, max_x;
+    getmaxyx(stdscr, max_y, max_x);
+
+    WINDOW *text_win = newwin(max_y - 1, max_x, 0, 0);
+
+    wbkgd(text_win, ' ' | COLOR_PAIR(PAIR_TEXT));
+
+    return text_win;
+}
+
+WINDOW* strstate_win(void) {
+    int max_y, max_x;
+    getmaxyx(stdscr, max_y, max_x);
+
+    WINDOW *status_win = newwin(1, max_x, max_y - 1, 0);
+
+    wbkgd(status_win, ' ' | COLOR_PAIR(PAIR_STATUS));
+
+    return status_win;
+}
+
+void update_srtstate(WINDOW* w, const mt* state) {
+    wattron(w, COLOR_PAIR(PAIR_STATUS));
+    mvwprintw(w, 0, 0, "%-*s", getmaxx(w), state->path); // пля что за фокусы
+    wattroff(w, COLOR_PAIR(PAIR_STATUS));
+    wrefresh(w);
+}
+
+void update_text(WINDOW* w, const mt* state) {
+    wattron(w, COLOR_PAIR(PAIR_TEXT));
+    mvwprintw(w, 0, 0, "%s",
+    state->editbuffer + ioffset_scroll(state, state->scroll));
+    wattroff(w, COLOR_PAIR(PAIR_TEXT));
+    wrefresh(w);
+}
+
+void update(WINDOW* strstate, WINDOW* text, mt* state) {
+    update_srtstate(strstate, state);
+    update_text(text, state);
+}
 
 int main(int argc, char *argv[]) {
     setlocale(LC_ALL, "");
@@ -147,6 +194,8 @@ int main(int argc, char *argv[]) {
     noecho();
     curs_set(0);
     keypad(stdscr, TRUE);
+    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
+    MEVENT event;
 
     init_colors();
 
@@ -155,14 +204,34 @@ int main(int argc, char *argv[]) {
     keypad(text, TRUE);
     refresh();
 
-    state = bootstap_mt(text, path);
+    bootstap_mt(&state, text, path);
     if (state.editbuffer==NULL) goto naxyi;
 
-    update_srtstate(srtstate, path);
+    update(srtstate, text, &state);
 
-    update_text(text, state.editbuffer);
-    wrefresh(text);
-    getch();
+    int ch;
+    while (ch = getch()) {
+        switch (ch) {
+            case KEY_MOUSE:
+                if (getmouse(&event)==OK) {
+                    if (event.bstate & BUTTON4_PRESSED) {
+                        state.scroll -= SCROLL_S;
+                        if (state.scroll < 0) {
+                            state.scroll = 0;
+                        }
+                    } else if (event.bstate & BUTTON5_PRESSED) {
+                        int last = line_count(&state) - 1;
+                        state.scroll += SCROLL_S;
+                        if (state.scroll > last) {
+                            state.scroll = last;
+                        }
+                    }
+                }
+        }
+        update(srtstate, text, &state);
+    }
+
+    // getch();
 
     // cleanup
     delwin(text);
