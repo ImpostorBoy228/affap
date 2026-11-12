@@ -407,7 +407,7 @@ static void queue_mouse(mmask_t bstate, int ret) {
 }
 
 static char *write_temp_n(const void *data, size_t size) {
-    char tmpl[] = "/tmp/opencode/affap_XXXXXX";
+    char tmpl[] = "/tmp/affap_XXXXXX";
     int fd = mkstemp(tmpl);
 
     if (fd < 0) {

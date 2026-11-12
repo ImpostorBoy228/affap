@@ -106,7 +106,7 @@ static void bench_fileread(void) {
         if (path) { unlink(path); free(path); path = NULL; }
         {
             /* build path manually */
-            char tmpl[] = "/tmp/opencode/bench_XXXXXX";
+            char tmpl[] = "/tmp/affap_bench_XXXXXX";
             int fd = mkstemp(tmpl);
             if (fd >= 0) {
                 size_t written = 0;
