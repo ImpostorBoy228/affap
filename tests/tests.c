@@ -327,8 +327,97 @@ static void test_init_colors(void) {
 /* rendering                                                              */
 /* ====================================================================== */
 
+static void test_update_srtstate(void) {
+    mt state = {0};
 
+    reset_all();
+    mock_cols = 10;
 
+    state.path = "/tmp/x";
+    update_srtstate(WIN_STATUS, &state);
+
+    CHECK_STR("/tmp/x    ", cap_status);
+    CHECK(status_attr == COLOR_PAIR(PAIR_STATUS));
+    CHECK(wr_count == 1);
+
+    reset_all();
+    mock_cols = 4;
+    state.path = "longer-than-window";
+    update_srtstate(WIN_STATUS, &state);
+    CHECK_STR("longer-than-window", cap_status);
+
+    reset_all();
+    mock_cols = 0;
+    state.path = "";
+    update_srtstate(WIN_STATUS, &state);
+    CHECK_STR("", cap_status);
+}
+
+static void test_update_text(void) {
+    mt state = {0};
+
+    reset_all();
+    state.editbuffer = (char *)"line0\nline1\nline2";
+
+    update_text(WIN_TEXT, &state);
+    CHECK(text_erased == 1);
+    CHECK(text_saw_erase == 1);
+    CHECK(text_attr == COLOR_PAIR(PAIR_TEXT));
+    CHECK_STR("line0\nline1\nline2", cap_text);
+    CHECK(wr_count == 1);
+
+    state.scroll = 1;
+    text_erased = 0;
+    text_saw_erase = 0;
+    update_text(WIN_TEXT, &state);
+    CHECK(text_erased == 1);
+    CHECK(text_saw_erase == 1);
+    CHECK_STR("line1\nline2", cap_text);
+
+    state.scroll = 2;
+    update_text(WIN_TEXT, &state);
+    CHECK_STR("line2", cap_text);
+
+    state.scroll = 3;
+    update_text(WIN_TEXT, &state);
+    CHECK_STR("line0\nline1\nline2", cap_text);
+
+    state.scroll = 42;
+    update_text(WIN_TEXT, &state);
+    CHECK_STR("line0\nline1\nline2", cap_text);
+
+    state.scroll = -1;
+    update_text(WIN_TEXT, &state);
+    CHECK_STR("line0\nline1\nline2", cap_text);
+
+    reset_all();
+    state.editbuffer = (char *)"";
+    state.scroll = 0;
+    update_text(WIN_TEXT, &state);
+    CHECK_STR("", cap_text);
+    CHECK(text_erased == 1);
+
+    /* NULL buffer: mvwprintw with "%s" and NULL is UB; code path not taken in main
+       because update only called after non-null check. Ensure no crash by skipping. */
+}
+
+static void test_update(void) {
+    mt state = {0};
+
+    reset_all();
+    mock_cols = 16;
+    state.path = "file.txt";
+    state.editbuffer = (char *)"alpha\nbeta";
+    state.scroll = 1;
+
+    update(WIN_STATUS, WIN_TEXT, &state);
+
+    CHECK_STR("file.txt        ", cap_status);
+    CHECK_STR("beta", cap_text);
+    CHECK(status_saw_erase == 0);
+    CHECK(text_saw_erase == 1);
+    CHECK(wr_count == 2);
+}
 
 /* ====================================================================== */
 /* app_main                                                               */
@@ -353,14 +442,193 @@ static void test_main_missing_file(void) {
     CHECK(mousemask_count == 1);
 }
 
+static void test_main_basic(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
 
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){ERR}, 1);
 
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+    CHECK(initscr_count == 1);
+    CHECK(endwin_count == 1);
+    CHECK(delwin_count == 2);
+    CHECK(keypad_count >= 2);
+    CHECK(refresh_count == 1);
+    CHECK(mousemask_count == 1);
+    CHECK(last_mousemask & BUTTON4_PRESSED);
+    CHECK(last_mousemask & BUTTON5_PRESSED);
 
+    unlink(path);
+    free(path);
+}
 
+static void test_main_scroll_down(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
 
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
+    queue_mouse(BUTTON5_PRESSED, OK);
 
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l1\nl2", cap_text);
 
+    unlink(path);
+    free(path);
+}
 
+static void test_main_scroll_up_at_top(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
+    queue_mouse(BUTTON4_PRESSED, OK);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_scroll_clamped_bottom(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+    int keys[12];
+
+    CHECK(path != NULL);
+    reset_all();
+
+    for (int i = 0; i < 11; i++) {
+        keys[i] = KEY_MOUSE;
+        queue_mouse(BUTTON5_PRESSED, OK);
+    }
+    keys[11] = ERR;
+    queue_keys(keys, 12);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_scroll_roundtrip(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+    int keys[12];
+
+    CHECK(path != NULL);
+    reset_all();
+
+    for (int i = 0; i < 3; i++) {
+        keys[i] = KEY_MOUSE;
+        queue_mouse(BUTTON5_PRESSED, OK);
+    }
+    for (int i = 3; i < 11; i++) {
+        keys[i] = KEY_MOUSE;
+        queue_mouse(BUTTON4_PRESSED, OK);
+    }
+    keys[11] = ERR;
+    queue_keys(keys, 12);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_getmouse_error(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
+    queue_mouse(BUTTON5_PRESSED, ERR);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_unknown_button(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
+    queue_mouse(BUTTON1_PRESSED, OK);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_zero_key_does_not_exit(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){0, KEY_MOUSE, ERR}, 3);
+    queue_mouse(BUTTON5_PRESSED, OK);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_main_resize(void) {
+    char *path = write_temp("l0\nl1\nl2");
+    char *argv[] = {"affap", path, NULL};
+
+    CHECK(path != NULL);
+    reset_all();
+
+    resize_pending = 1;
+    resize_to_rows = 40;
+    resize_to_cols = 120;
+    queue_keys((const int[]){KEY_RESIZE, ERR}, 2);
+
+    CHECK(app_main(2, argv) == 0);
+
+    CHECK(newwin_count == 4);
+    CHECK(newwin_nlines[0] == 23);
+    CHECK(newwin_ncols[0] == 80);
+    CHECK(newwin_nlines[1] == 1);
+    CHECK(newwin_ncols[1] == 80);
+
+    CHECK(newwin_nlines[2] == 39);
+    CHECK(newwin_ncols[2] == 120);
+    CHECK(newwin_y[2] == 0);
+    CHECK(newwin_x[2] == 0);
+
+    CHECK(newwin_nlines[3] == 1);
+    CHECK(newwin_ncols[3] == 120);
+    CHECK(newwin_y[3] == 39);
+    CHECK(newwin_x[3] == 0);
+
+    CHECK(delwin_count == 4);
+    CHECK_STR("l0\nl1\nl2", cap_text);
+
+    unlink(path);
+    free(path);
+}
 
 /* ====================================================================== */
 /* additional high-rigor tests                                            */
@@ -485,7 +753,48 @@ static void test_app_main_empty_file(void) {
     free(path);
 }
 
+static void test_app_main_single_line(void) {
+    char *path = write_temp("only line");
+    char *argv[] = {"affap", path, NULL};
 
+    CHECK(path != NULL);
+    reset_all();
+    queue_keys((const int[]){KEY_MOUSE, KEY_MOUSE, ERR}, 3);
+    queue_mouse(BUTTON5_PRESSED, OK);
+    queue_mouse(BUTTON5_PRESSED, OK);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("only line", cap_text);
+
+    unlink(path);
+    free(path);
+}
+
+static void test_scroll_up_from_middle(void) {
+    char *path = write_temp("l0\nl1\nl2\nl3");
+    char *argv[] = {"affap", path, NULL};
+    int keys[6];
+
+    CHECK(path != NULL);
+    reset_all();
+
+    /* go down 2 */
+    for (int i = 0; i < 2; i++) {
+        keys[i] = KEY_MOUSE;
+        queue_mouse(BUTTON5_PRESSED, OK);
+    }
+    /* go up 1 */
+    keys[2] = KEY_MOUSE;
+    queue_mouse(BUTTON4_PRESSED, OK);
+    keys[3] = ERR;
+    queue_keys(keys, 4);
+
+    CHECK(app_main(2, argv) == 0);
+    CHECK_STR("l1\nl2\nl3", cap_text);
+
+    unlink(path);
+    free(path);
+}
 
 /* ====================================================================== */
 /* fuzz-ish random tests                                                  */
@@ -543,8 +852,20 @@ int main(void) {
     RUN_TEST(test_text_win);
     RUN_TEST(test_strstate_win);
     RUN_TEST(test_init_colors);
+    RUN_TEST(test_update_srtstate);
+    RUN_TEST(test_update_text);
+    RUN_TEST(test_update);
     RUN_TEST(test_main_no_args);
     RUN_TEST(test_main_missing_file);
+    RUN_TEST(test_main_basic);
+    RUN_TEST(test_main_scroll_down);
+    RUN_TEST(test_main_scroll_up_at_top);
+    RUN_TEST(test_main_scroll_clamped_bottom);
+    RUN_TEST(test_main_scroll_roundtrip);
+    RUN_TEST(test_main_getmouse_error);
+    RUN_TEST(test_main_unknown_button);
+    RUN_TEST(test_main_zero_key_does_not_exit);
+    RUN_TEST(test_main_resize);
     RUN_TEST(test_mousemask_flags);
     RUN_TEST(test_main_multiple_resizes);
     RUN_TEST(test_ioffset_exact);
@@ -552,6 +873,8 @@ int main(void) {
     RUN_TEST(test_fileread_directory);
     RUN_TEST(test_update_text_null_buffer_guard);
     RUN_TEST(test_app_main_empty_file);
+    RUN_TEST(test_app_main_single_line);
+    RUN_TEST(test_scroll_up_from_middle);
     RUN_TEST(test_fuzz_ioffset_no_crash);
     RUN_TEST(test_fuzz_fileread_roundtrip);
 

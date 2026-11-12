@@ -157,25 +157,20 @@ WINDOW* strstate_win(void) {
     return status_win;
 }
 
-#define ANSI_STATUS "\033[38;2;39;31;48;48;2;125;130;184m"
-#define ANSI_TEXT   "\033[38;2;252;247;255;48;2;39;31;48m"
-#define ANSI_RESET  "\033[0m"
-
-/* Emit ANSI directly so the terminal interprets colors instead of printing escapes. */
 void update_srtstate(WINDOW* w, const mt* state) {
-    (void)w;
-    printf("\033[%d;1H" ANSI_STATUS "%-*s" ANSI_RESET "\033[K",
-           state->max_y + 1, state->max_x, state->path);
-    fflush(stdout);
+    wattron(w, COLOR_PAIR(PAIR_STATUS));
+    mvwprintw(w, 0, 0, "%-*s", getmaxx(w), state->path); // пля что за фокусы
+    wattroff(w, COLOR_PAIR(PAIR_STATUS));
+    wrefresh(w);
 }
 
 void update_text(WINDOW* w, const mt* state) {
-    (void)w;
-    for (int r = 1; r <= state->max_y; ++r) {
-        printf("\033[%d;1H\033[2K", r);
-    }
-    printf("\033[1;1H" ANSI_TEXT "%s" ANSI_RESET, state->editbuffer + ioffset_scroll(state, state->scroll));
-    fflush(stdout);
+    werase(w);
+    wattron(w, COLOR_PAIR(PAIR_TEXT));
+    mvwprintw(w, 0, 0, "%s",
+    state->editbuffer + ioffset_scroll(state, state->scroll));
+    wattroff(w, COLOR_PAIR(PAIR_TEXT));
+    wrefresh(w);
 }
 
 void update(WINDOW* strstate, WINDOW* text, mt* state) {
