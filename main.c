@@ -211,6 +211,7 @@ int main(int argc, char *argv[]) {
 
     update(srtstate, text, &state);
 
+    // TODO implement vim
     int ch;
     while ((ch = getch()) != ERR) {
         switch (ch) {
