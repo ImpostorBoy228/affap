@@ -1,84 +1,6 @@
 #include "test_support.h"
 
 /* ====================================================================== */
-/* force_direct_term                                                       */
-/* ====================================================================== */
-
-static void test_force_direct_term(void) {
-    char *old_term = getenv("TERM") ? strdup(getenv("TERM")) : NULL;
-    char *old_colorterm =
-        getenv("COLORTERM") ? strdup(getenv("COLORTERM")) : NULL;
-
-    reset_all();
-
-    unsetenv("TERM");
-    unsetenv("COLORTERM");
-    force_direct_term();
-    CHECK(env_is("TERM", NULL));
-
-    setenv("TERM", "foot-extra", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "foot-direct"));
-
-    setenv("TERM", "tmux-256color", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "tmux-direct"));
-
-    setenv("TERM", "xterm-256color", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "xterm-direct"));
-
-    setenv("TERM", "foot", 1);
-    setenv("COLORTERM", "truecolor", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "foot-direct"));
-
-    setenv("TERM", "alacritty", 1);
-    setenv("COLORTERM", "truecolor", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "xterm-direct"));
-
-    setenv("TERM", "alacritty", 1);
-    setenv("COLORTERM", "24bit", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "xterm-direct"));
-
-    setenv("TERM", "alacritty", 1);
-    setenv("COLORTERM", "no", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "alacritty"));
-
-    setenv("TERM", "alacritty", 1);
-    unsetenv("COLORTERM");
-    force_direct_term();
-    CHECK(env_is("TERM", "alacritty"));
-
-    /* case sensitivity / substrings */
-    setenv("TERM", "FOOT", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "FOOT")); /* strstr is case-sensitive */
-
-    setenv("TERM", "myxterm", 1);
-    setenv("COLORTERM", "truecolor", 1);
-    force_direct_term();
-    CHECK(env_is("TERM", "xterm-direct"));
-
-    if (old_term != NULL) {
-        setenv("TERM", old_term, 1);
-        free(old_term);
-    } else {
-        unsetenv("TERM");
-    }
-
-    if (old_colorterm != NULL) {
-        setenv("COLORTERM", old_colorterm, 1);
-        free(old_colorterm);
-    } else {
-        unsetenv("COLORTERM");
-    }
-}
-
-/* ====================================================================== */
 /* fileread                                                               */
 /* ====================================================================== */
 
@@ -844,14 +766,13 @@ int main(void) {
     printf("affap test suite\n");
     printf("================\n");
 
-    RUN_TEST(test_force_direct_term);
+    RUN_TEST(test_init_colors);
     RUN_TEST(test_fileread);
     RUN_TEST(test_ioffset_scroll);
     RUN_TEST(test_line_count);
     RUN_TEST(test_bootstap_mt);
     RUN_TEST(test_text_win);
     RUN_TEST(test_strstate_win);
-    RUN_TEST(test_init_colors);
     RUN_TEST(test_update_srtstate);
     RUN_TEST(test_update_text);
     RUN_TEST(test_update);

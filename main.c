@@ -6,10 +6,10 @@
 #include <ncurses.h>
 
 
-#define STATUS_FG 0x271F30
-#define STATUS_BG 0x7D82B8
-#define TEXT_FG 0xFCF7FF
-#define TEXT_BG 0x271F30
+#define STATUS_FG 235
+#define STATUS_BG 103
+#define TEXT_FG 231
+#define TEXT_BG 235
 
 #define PAIR_STATUS 1
 #define PAIR_TEXT 2
@@ -80,27 +80,6 @@ static void init_colors(void) {
 
     init_custom_pair(PAIR_STATUS, STATUS_FG, STATUS_BG);
     init_custom_pair(PAIR_TEXT, TEXT_FG, TEXT_BG);
-}
-
-static void force_direct_term(void) {
-    const char *term = getenv("TERM");
-    const char *colorterm = getenv("COLORTERM");
-
-    if (term == NULL) {
-        return;
-    }
-
-    if (strstr(term, "foot") != NULL) {
-        setenv("TERM", "foot-direct", 1);
-    } else if (strstr(term, "tmux") != NULL) {
-        setenv("TERM", "tmux-direct", 1);
-    } else if (strstr(term, "xterm") != NULL) {
-        setenv("TERM", "xterm-direct", 1);
-    } else if (colorterm != NULL &&
-               (strcmp(colorterm, "truecolor") == 0 ||
-                strcmp(colorterm, "24bit") == 0)) {
-        setenv("TERM", "xterm-direct", 1);
-    }
 }
 
 size_t ioffset_scroll(const mt* state, int stn) {
@@ -188,8 +167,6 @@ int main(int argc, char *argv[]) {
         path = argv[1];
     } else { return 666; }
 
-
-    force_direct_term();
 
     initscr();
     cbreak();
