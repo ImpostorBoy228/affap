@@ -11,14 +11,14 @@ static void test_fileread(void) {
 
     reset_all();
 
-    CHECK(fileread("/definitely/does/not/exist") == NULL);
-    CHECK(fileread("") == NULL); /* empty path -> fopen fails */
+    CHECK(fileread("/definitely/does/not/exist") == nullptr);
+    CHECK(fileread("") == nullptr); /* empty path -> fopen fails */
 
     path = write_temp("");
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     buffer = fileread(path);
-    CHECK(buffer != NULL);
-    if (buffer != NULL) {
+    CHECK(buffer != nullptr);
+    if (buffer != nullptr) {
         CHECK(buffer[0] == '\0');
         CHECK(strlen(buffer) == 0);
     }
@@ -27,10 +27,10 @@ static void test_fileread(void) {
     free(path);
 
     path = write_temp("hello\nworld");
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     buffer = fileread(path);
-    CHECK(buffer != NULL);
-    if (buffer != NULL) {
+    CHECK(buffer != nullptr);
+    if (buffer != nullptr) {
         CHECK_STR("hello\nworld", buffer);
         CHECK(strlen(buffer) == strlen("hello\nworld"));
     }
@@ -39,10 +39,10 @@ static void test_fileread(void) {
     free(path);
 
     path = write_temp_n(binary, sizeof(binary));
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     buffer = fileread(path);
-    CHECK(buffer != NULL);
-    if (buffer != NULL) {
+    CHECK(buffer != nullptr);
+    if (buffer != nullptr) {
         CHECK(buffer[0] == 'a');
         CHECK(buffer[1] == '\0');
         CHECK(buffer[2] == 'b');
@@ -105,7 +105,7 @@ static void test_ioffset_scroll(void) {
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 0);
 
-    state.editbuffer = NULL;
+    state.editbuffer = nullptr;
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 3) == 0);
 
@@ -145,7 +145,7 @@ static void test_line_count(void) {
     CHECK(line_count(&state) == 4);
 
     /* property: line_count >= 1 always */
-    state.editbuffer = NULL;
+    state.editbuffer = nullptr;
     CHECK(line_count(&state) >= 1);
 }
 
@@ -162,7 +162,7 @@ static void test_bootstap_mt(void) {
     mock_cols = 100;
 
     path = write_temp("first\nsecond");
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
 
     bootstap_mt(&state, WIN_TEXT, path);
     CHECK(state.max_x == 100);
@@ -171,8 +171,8 @@ static void test_bootstap_mt(void) {
     CHECK(state.cur_y == 0);
     CHECK(state.scroll == 0);
     CHECK(state.path == path);
-    CHECK(state.editbuffer != NULL);
-    if (state.editbuffer != NULL) {
+    CHECK(state.editbuffer != nullptr);
+    if (state.editbuffer != nullptr) {
         CHECK_STR("first\nsecond", state.editbuffer);
     }
 
@@ -184,7 +184,7 @@ static void test_bootstap_mt(void) {
     bootstap_mt(&state, WIN_TEXT, "/definitely/does/not/exist");
     CHECK(state.max_x == 100);
     CHECK(state.max_y == 30);
-    CHECK(state.editbuffer == NULL);
+    CHECK(state.editbuffer == nullptr);
     CHECK_STR("/definitely/does/not/exist", state.path);
     free(state.editbuffer);
 }
@@ -319,7 +319,7 @@ static void test_update_text(void) {
     CHECK_STR("", cap_text);
     CHECK(text_erased == 1);
 
-    /* NULL buffer: mvwprintw with "%s" and NULL is UB; code path not taken in main
+    /* nullptr buffer: mvwprintw with "%s" and nullptr is UB; code path not taken in main
        because update only called after non-null check. Ensure no crash by skipping. */
 }
 
@@ -346,7 +346,7 @@ static void test_update(void) {
 /* ====================================================================== */
 
 static void test_main_no_args(void) {
-    char *argv[] = {"affap", NULL};
+    char *argv[] = {"affap", nullptr};
 
     reset_all();
     CHECK(app_main(1, argv) == 666);
@@ -354,7 +354,7 @@ static void test_main_no_args(void) {
 }
 
 static void test_main_missing_file(void) {
-    char *argv[] = {"affap", "/definitely/does/not/exist", NULL};
+    char *argv[] = {"affap", "/definitely/does/not/exist", nullptr};
 
     reset_all();
     CHECK(app_main(2, argv) == 666);
@@ -366,9 +366,9 @@ static void test_main_missing_file(void) {
 
 static void test_main_basic(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){ERR}, 1);
 
@@ -389,9 +389,9 @@ static void test_main_basic(void) {
 
 static void test_main_scroll_down(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
     queue_mouse(BUTTON5_PRESSED, OK);
@@ -405,9 +405,9 @@ static void test_main_scroll_down(void) {
 
 static void test_main_scroll_up_at_top(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
     queue_mouse(BUTTON4_PRESSED, OK);
@@ -421,10 +421,10 @@ static void test_main_scroll_up_at_top(void) {
 
 static void test_main_scroll_clamped_bottom(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
     int keys[12];
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
 
     for (int i = 0; i < 11; i++) {
@@ -443,10 +443,10 @@ static void test_main_scroll_clamped_bottom(void) {
 
 static void test_main_scroll_roundtrip(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
     int keys[12];
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
 
     for (int i = 0; i < 3; i++) {
@@ -469,9 +469,9 @@ static void test_main_scroll_roundtrip(void) {
 
 static void test_main_getmouse_error(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
     queue_mouse(BUTTON5_PRESSED, ERR);
@@ -485,9 +485,9 @@ static void test_main_getmouse_error(void) {
 
 static void test_main_unknown_button(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){KEY_MOUSE, ERR}, 2);
     queue_mouse(BUTTON1_PRESSED, OK);
@@ -501,9 +501,9 @@ static void test_main_unknown_button(void) {
 
 static void test_main_zero_key_does_not_exit(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){0, KEY_MOUSE, ERR}, 3);
     queue_mouse(BUTTON5_PRESSED, OK);
@@ -517,9 +517,9 @@ static void test_main_zero_key_does_not_exit(void) {
 
 static void test_main_resize(void) {
     char *path = write_temp("l0\nl1\nl2");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
 
     resize_pending = 1;
@@ -558,9 +558,9 @@ static void test_main_resize(void) {
 
 static void test_mousemask_flags(void) {
     char *path = write_temp("x");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){ERR}, 1);
 
@@ -577,9 +577,9 @@ static void test_mousemask_flags(void) {
 
 static void test_main_multiple_resizes(void) {
     char *path = write_temp("a\nb\nc");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
 
     /* first resize */
@@ -644,17 +644,17 @@ static void test_fileread_directory(void) {
     /* opening a directory for reading may succeed on some systems; fileread
        should not crash either way. */
     char *b = fileread("/tmp");
-    /* accept NULL or non-NULL, but if non-NULL it must be freeable */
+    /* accept nullptr or non-nullptr, but if non-nullptr it must be freeable */
     free(b);
     CHECK(1);
 }
 
 static void test_update_text_null_buffer_guard(void) {
-    /* update_text with NULL editbuffer would pass NULL to mvwprintw %s (UB).
-       The application never calls it with NULL (guarded in main), so we do not
-       exercise that path. Instead verify line_count/ioffset handle NULL. */
+    /* update_text with nullptr editbuffer would pass nullptr to mvwprintw %s (UB).
+       The application never calls it with nullptr (guarded in main), so we do not
+       exercise that path. Instead verify line_count/ioffset handle nullptr. */
     mt state = {0};
-    state.editbuffer = NULL;
+    state.editbuffer = nullptr;
     CHECK(line_count(&state) == 1);
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 5) == 0);
@@ -662,9 +662,9 @@ static void test_update_text_null_buffer_guard(void) {
 
 static void test_app_main_empty_file(void) {
     char *path = write_temp("");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){ERR}, 1);
 
@@ -677,9 +677,9 @@ static void test_app_main_empty_file(void) {
 
 static void test_app_main_single_line(void) {
     char *path = write_temp("only line");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
     queue_keys((const int[]){KEY_MOUSE, KEY_MOUSE, ERR}, 3);
     queue_mouse(BUTTON5_PRESSED, OK);
@@ -694,10 +694,10 @@ static void test_app_main_single_line(void) {
 
 static void test_scroll_up_from_middle(void) {
     char *path = write_temp("l0\nl1\nl2\nl3");
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
     int keys[6];
 
-    CHECK(path != NULL);
+    CHECK(path != nullptr);
     reset_all();
 
     /* go down 2 */

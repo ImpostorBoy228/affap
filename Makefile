@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS ?= -Wall -Wextra -O0 $(shell pkg-config --cflags ncursesw)
+CFLAGS ?= -Wall -std=c23 -Wextra -O0 $(shell pkg-config --cflags ncursesw)
 LDLIBS ?= $(shell pkg-config --libs ncursesw)
 
 TESTS_BIN = tests/tests

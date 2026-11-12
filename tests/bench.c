@@ -67,7 +67,7 @@ static void bench_report(bench_result_t *r) {
     }
     printf("\n");
     free(r->samples);
-    r->samples = NULL;
+    r->samples = nullptr;
     r->n = r->cap = 0;
 }
 
@@ -87,8 +87,8 @@ static void bench_fileread(void) {
 
     for (size_t si = 0; si < sizeof(sizes)/sizeof(sizes[0]); si++) {
         size_t n = sizes[si];
-        char *buf = NULL;
-        char *path = NULL;
+        char *buf = nullptr;
+        char *path = nullptr;
         bench_result_t r;
 
         if (n == 0) {
@@ -103,7 +103,7 @@ static void bench_fileread(void) {
         path = write_temp_n(buf ? buf : "", n == 0 ? 0 : n + 1);
         /* write_temp_n writes size bytes including NUL for n+1; adjust: rewrite as text */
         /* simpler: create file with exact n bytes of 'A' */
-        if (path) { unlink(path); free(path); path = NULL; }
+        if (path) { unlink(path); free(path); path = nullptr; }
         {
             /* build path manually */
             char tmpl[] = "/tmp/affap_bench_XXXXXX";
@@ -120,7 +120,7 @@ static void bench_fileread(void) {
             }
         }
 
-        bench_result_init(&r, NULL, 0);
+        bench_result_init(&r, nullptr, 0);
         /* dynamic name */
         char name[128];
         snprintf(name, sizeof(name), "fileread %-6s", labels[si]);
@@ -256,13 +256,13 @@ static void bench_app_main_startup(void) {
     bench_result_init(&r, "app_main startup+shutdown", 0);
     for (int i = 0; i < 3; i++) {
         reset_all();
-        char *argv[] = {"affap", path, NULL};
+        char *argv[] = {"affap", path, nullptr};
         queue_keys((const int[]){ERR}, 1);
         app_main(2, argv);
     }
     for (long i = 0; i < 100; i++) {
         reset_all();
-        char *argv[] = {"affap", path, NULL};
+        char *argv[] = {"affap", path, nullptr};
         queue_keys((const int[]){ERR}, 1);
         double t0 = ns_now();
         app_main(2, argv);
@@ -309,7 +309,7 @@ static void bench_scroll_loop(void) {
     queue_keys(keys, nkeys);
 
     double t0 = ns_now();
-    char *argv[] = {"affap", path, NULL};
+    char *argv[] = {"affap", path, nullptr};
     app_main(2, argv);
     double t1 = ns_now();
     printf("  %-44s  total=%.3f ms\n", "app_main scroll 4095 down (100k lines)", (t1 - t0) / 1e6);

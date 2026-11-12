@@ -209,7 +209,7 @@ static int mock_getmouse(MEVENT *event) {
     }
 
     i = mouse_i++;
-    if (event != NULL) {
+    if (event != nullptr) {
         memset(event, 0, sizeof(*event));
         event->bstate = mouse_queue[i];
     }
@@ -269,7 +269,7 @@ static int mock_refresh(void) {
 static mmask_t mock_mousemask(mmask_t mask, mmask_t *oldmask) {
     mousemask_count++;
     last_mousemask = mask;
-    if (oldmask != NULL) {
+    if (oldmask != nullptr) {
         *oldmask = 0;
     }
     return mask;
@@ -411,13 +411,13 @@ static char *write_temp_n(const void *data, size_t size) {
     int fd = mkstemp(tmpl);
 
     if (fd < 0) {
-        return NULL;
+        return nullptr;
     }
 
     if (size > 0 && write(fd, data, size) < 0) {
         close(fd);
         unlink(tmpl);
-        return NULL;
+        return nullptr;
     }
 
     close(fd);
@@ -431,10 +431,10 @@ static char *write_temp(const char *text) {
 static __attribute__((unused)) int env_is(const char *name, const char *value) {
     const char *current = getenv(name);
 
-    if (value == NULL) {
-        return current == NULL;
+    if (value == nullptr) {
+        return current == nullptr;
     }
-    return current != NULL && strcmp(current, value) == 0;
+    return current != nullptr && strcmp(current, value) == 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -466,7 +466,7 @@ static __attribute__((unused)) double now_sec(void) {
         checks++;                                                              \
         const char *e_ = (expected);                                           \
         const char *a_ = (actual);                                             \
-        if (e_ == NULL || a_ == NULL || strcmp(e_, a_) != 0) {                 \
+        if (e_ == nullptr || a_ == nullptr || strcmp(e_, a_) != 0) {                 \
             failures++;                                                        \
             fprintf(stderr, "FAIL %s:%d\n  expected: [%s]\n  actual:   [%s]\n",\
                     __FILE__, __LINE__, e_ ? e_ : "(null)",                    \
@@ -501,9 +501,9 @@ static __attribute__((unused)) double now_sec(void) {
 #define CHECK_NOT_NULL(p)                                                      \
     do {                                                                       \
         checks++;                                                              \
-        if ((p) == NULL) {                                                     \
+        if ((p) == nullptr) {                                                     \
             failures++;                                                        \
-            fprintf(stderr, "FAIL %s:%d: unexpected NULL: %s\n",               \
+            fprintf(stderr, "FAIL %s:%d: unexpected nullptr: %s\n",               \
                     __FILE__, __LINE__, #p);                                   \
         }                                                                      \
     } while (0)
@@ -511,9 +511,9 @@ static __attribute__((unused)) double now_sec(void) {
 #define CHECK_NULL(p)                                                          \
     do {                                                                       \
         checks++;                                                              \
-        if ((p) != NULL) {                                                     \
+        if ((p) != nullptr) {                                                     \
             failures++;                                                        \
-            fprintf(stderr, "FAIL %s:%d: expected NULL: %s\n",                 \
+            fprintf(stderr, "FAIL %s:%d: expected nullptr: %s\n",                 \
                     __FILE__, __LINE__, #p);                                   \
         }                                                                      \
     } while (0)
@@ -533,7 +533,7 @@ static __attribute__((unused)) double now_sec(void) {
         checks++;                                                              \
         const char *h_ = (haystack);                                           \
         const char *n_ = (needle);                                             \
-        if (h_ == NULL || n_ == NULL || strstr(h_, n_) == NULL) {              \
+        if (h_ == nullptr || n_ == nullptr || strstr(h_, n_) == nullptr) {              \
             failures++;                                                        \
             fprintf(stderr, "FAIL %s:%d: [%s] not found in [%s]\n",            \
                     __FILE__, __LINE__, n_ ? n_ : "(null)",                    \

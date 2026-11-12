@@ -5,7 +5,6 @@
 #include <locale.h>
 #include <ncurses.h>
 
-
 #define STATUS_FG 235
 #define STATUS_BG 103
 #define TEXT_FG 231
@@ -31,8 +30,8 @@ typedef struct {
 // utility
 char* fileread(const char* f) {
     FILE* file = fopen(f, "rb");
-    if (file == NULL) {
-        return NULL;
+    if (file == nullptr) {
+        return nullptr;
     }
 
     fseek(file, 0, SEEK_END);
@@ -41,13 +40,13 @@ char* fileread(const char* f) {
 
     if (length < 0) {
         fclose(file);
-        return NULL;
+        return nullptr;
     }
 
     char* buffer = (char*)malloc(length + 1);
-    if (buffer == NULL) {
+    if (buffer == nullptr) {
         fclose(file);
-        return NULL;
+        return nullptr;
     }
 
     size_t read_bytes = fread(buffer, 1, length, file);
@@ -55,6 +54,14 @@ char* fileread(const char* f) {
 
     fclose(file);
     return buffer;
+}
+
+void filewrite(const char* f, char* eb) {
+    FILE* file = fopen(f, "w");
+    if (file == nullptr) {
+        return;
+    }
+    fputs(eb, file);
 }
 
 void bootstap_mt(mt* state, WINDOW* w, const char* f) {
@@ -85,7 +92,7 @@ static void init_colors(void) {
 size_t ioffset_scroll(const mt* state, int stn) {
     // returns offset of the first char of line stn (0-based)
     const char* eb = state->editbuffer;
-    if (eb == NULL || stn <= 0) {
+    if (eb == nullptr || stn <= 0) {
         return 0;
     }
 
@@ -100,7 +107,7 @@ size_t ioffset_scroll(const mt* state, int stn) {
 
 int line_count(const mt* state) {
     const char* eb = state->editbuffer;
-    if (eb == NULL) {
+    if (eb == nullptr) {
         return 1;
     }
 
@@ -173,7 +180,7 @@ int main(int argc, char *argv[]) {
     noecho();
     curs_set(0);
     keypad(stdscr, TRUE);
-    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
+    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, nullptr);
     MEVENT event;
 
     init_colors();
@@ -184,7 +191,7 @@ int main(int argc, char *argv[]) {
     refresh();
 
     bootstap_mt(&state, text, path);
-    if (state.editbuffer==NULL) goto naxyi;
+    if (state.editbuffer==nullptr) goto naxyi;
 
     update(srtstate, text, &state);
 
@@ -231,13 +238,13 @@ int main(int argc, char *argv[]) {
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != NULL) free(state.editbuffer);
+    if (state.editbuffer != nullptr) free(state.editbuffer);
     return 0;
 
 naxyi:
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != NULL) free(state.editbuffer);
+    if (state.editbuffer != nullptr) free(state.editbuffer);
     return 666;
 }

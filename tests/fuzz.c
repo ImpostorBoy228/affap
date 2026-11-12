@@ -81,7 +81,7 @@ static int fuzz_bootstap(void) {
     int iters = 500;
     for (int t = 0; t < iters; t++) {
         /* mix existing and missing paths */
-        char *path = NULL;
+        char *path = nullptr;
         if (fuzz_rand() & 1) {
             size_t n = fuzz_rand() % 64;
             char buf[65];
@@ -98,7 +98,7 @@ static int fuzz_bootstap(void) {
         bootstap_mt(&state, WIN_TEXT, path);
         if (state.max_x != mock_cols) { free(state.editbuffer); free(path); return 21; }
         if (state.max_y != mock_rows) { free(state.editbuffer); free(path); return 22; }
-        if (state.editbuffer != NULL) {
+        if (state.editbuffer != nullptr) {
             /* must be NUL terminated */
             /* strlen should be safe */
             (void)strlen(state.editbuffer);
@@ -149,7 +149,7 @@ static int fuzz_app_main(void) {
         keys[nkeys] = ERR;
         queue_keys(keys, nkeys + 1);
 
-        char *argv[] = {"affap", path, NULL};
+        char *argv[] = {"affap", path, nullptr};
         int rc = app_main(2, argv);
         if (rc != 0) {
             /* app_main returns 0 on normal exit; nonzero only on missing file (not here) */
