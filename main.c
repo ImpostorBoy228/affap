@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <locale.h>
 #include <ncurses.h>
 
@@ -220,16 +221,21 @@ void free_list(List* list) {
 /// BEGIN MAIN
 
 typedef struct {
+    bool append_mode;
+
     int max_x;
     int max_y;
 
     int cur_x;
     int cur_y;
+    int curpos;
     int scroll;
 
     List* editbuffer;
     const char* path;
 } mt;
+
+static void sync_cursor(mt* state);
 
 // utility
 char* fileread(const char* f) {
@@ -280,10 +286,14 @@ void bootstap_mt(mt* state, WINDOW* w, const char* f) {
         .max_y = row,
         .cur_y = 0,
         .cur_x = 0,
+        .curpos = 0,
+        .scroll = 0,
+        .append_mode = false,
         .path = f,
         .editbuffer = narezka(raw),
     };
     free(raw);
+    sync_cursor(state);
 }
 
 static void init_custom_pair(short pair, int fg, int bg) {
@@ -336,6 +346,82 @@ int line_count(const mt* state) {
     }
     return lines;
 }
+
+
+static void pos_to_lc(const char* s, int pos, int* line, int* col) {
+    if (line != nullptr) { *line = 0; }
+    if (col != nullptr) { *col = 0; }
+    if (s == nullptr || pos < 0) {
+        return;
+    }
+
+    size_t len = strlen(s);
+    if ((size_t)pos > len) {
+        pos = (int)len;
+    }
+
+    int l = 0;
+    int c = 0;
+    for (int i = 0; i < pos; ++i) {
+        if (s[i] == '\n') {
+            ++l;
+            c = 0;
+        } else {
+            ++c;
+        }
+    }
+    if (line != nullptr) { *line = l; }
+    if (col != nullptr) { *col = c; }
+}
+
+static void sync_cursor(mt* state) {
+    if (state == nullptr) { return; }
+
+    char* eb = list_flatten((List*)state->editbuffer);
+    size_t len = (eb != nullptr) ? strlen(eb) : 0;
+
+    if (state->curpos < 0) { state->curpos = 0; }
+    if ((size_t)state->curpos > len) { state->curpos = (int)len; }
+
+    int line = 0;
+    int col = 0;
+    pos_to_lc(eb, state->curpos, &line, &col);
+
+    if (state->max_y <= 0) { state->max_y = 1; }
+    if (state->max_x <= 0) { state->max_x = 1; }
+
+    if (line < state->scroll) {
+        state->scroll = line;
+    }
+    if (line >= state->scroll + state->max_y) {
+        state->scroll = line - state->max_y + 1;
+    }
+    if (state->scroll < 0) { state->scroll = 0; }
+
+    int total = line_count(state);
+    if (total < 1) { total = 1; }
+    if (state->scroll > total - 1) {
+        state->scroll = total - 1;
+    }
+    if (state->scroll < 0) { state->scroll = 0; }
+
+    pos_to_lc(eb, state->curpos, &line, &col);
+    state->cur_y = line - state->scroll;
+    state->cur_x = col;
+
+    if (state->cur_y < 0) { state->cur_y = 0; }
+    if (state->cur_y >= state->max_y) { state->cur_y = state->max_y - 1; }
+    if (state->cur_x < 0) { state->cur_x = 0; }
+    if (state->cur_x >= state->max_x) { state->cur_x = state->max_x - 1; }
+}
+
+void save(mt* state) {
+    if (state == nullptr || state->path == nullptr) {
+        return;
+    }
+    filewrite(state->path, list_flatten((List*)state->editbuffer));
+}
+
 
 // ncurses helpers
 WINDOW* text_win(void) {
@@ -421,37 +507,159 @@ int main(int argc, char *argv[]) {
 
     int ch;
     while ((ch = getch()) != ERR) {
-        switch (ch) {
-            case KEY_RESIZE: {
-                delwin(text);
-                delwin(srtstate);
+        if (ch == KEY_RESIZE) {
+            delwin(text);
+            delwin(srtstate);
 
-                text = text_win();
-                srtstate = strstate_win();
-                keypad(text, TRUE);
+            text = text_win();
+            srtstate = strstate_win();
+            keypad(text, TRUE);
 
-                int max_y, max_x;
-                getmaxyx(text, max_y, max_x);
-                state.max_y = max_y;
-                state.max_x = max_x;
-                break;
-            }
-            case KEY_MOUSE:
-                if (getmouse(&event)==OK) {
-                    if (event.bstate & BUTTON4_PRESSED) {
-                        state.scroll -= SCROLL_S;
-                        if (state.scroll < 0) {
-                            state.scroll = 0;
-                        }
-                    } else if (event.bstate & BUTTON5_PRESSED) {
-                        int last = line_count(&state) - 1;
-                        state.scroll += SCROLL_S;
-                        if (state.scroll > last) {
-                            state.scroll = last;
-                        }
+            int max_y, max_x;
+            getmaxyx(text, max_y, max_x);
+            state.max_y = max_y;
+            state.max_x = max_x;
+            sync_cursor(&state);
+        } else if (ch == KEY_MOUSE) {
+            if (getmouse(&event) == OK) {
+                if (event.bstate & BUTTON4_PRESSED) {
+                    state.scroll -= SCROLL_S;
+                    if (state.scroll < 0) {
+                        state.scroll = 0;
+                    }
+                } else if (event.bstate & BUTTON5_PRESSED) {
+                    int last = line_count(&state) - 1;
+                    state.scroll += SCROLL_S;
+                    if (state.scroll > last) {
+                        state.scroll = last;
                     }
                 }
+                char* eb = list_flatten((List*)state.editbuffer);
+                int line = 0;
+                int col = 0;
+                pos_to_lc(eb, state.curpos, &line, &col);
+                state.cur_y = line - state.scroll;
+                state.cur_x = col;
+                if (state.cur_y < 0) { state.cur_y = 0; }
+                if (state.cur_y >= state.max_y && state.max_y > 0) { state.cur_y = state.max_y - 1; }
+                if (state.cur_x < 0) { state.cur_x = 0; }
+                if (state.cur_x >= state.max_x && state.max_x > 0) { state.cur_x = state.max_x - 1; }
+            }
+        } else if (ch == KEY_LEFT) {
+            if (state.curpos > 0) { state.curpos--; }
+            sync_cursor(&state);
+        } else if (ch == KEY_RIGHT) {
+            char* eb = list_flatten((List*)state.editbuffer);
+            size_t len = (eb != nullptr) ? strlen(eb) : 0;
+            if ((size_t)state.curpos < len) { state.curpos++; }
+            sync_cursor(&state);
+        } else if (ch == KEY_UP) {
+            char* eb = list_flatten((List*)state.editbuffer);
+            int line = 0;
+            int col = 0;
+            pos_to_lc(eb, state.curpos, &line, &col);
+            if (line > 0) {
+                int target_line = line - 1;
+                int start = 0;
+                int l = 0;
+                if (eb != nullptr) {
+                    for (int i = 0; eb[i] != '\0'; ++i) {
+                        if (l == target_line) { start = i; break; }
+                        if (eb[i] == '\n') { ++l; }
+                    }
+                }
+                int end = start;
+                while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
+                int line_len = end - start;
+                int new_col = (col < line_len) ? col : line_len;
+                state.curpos = start + new_col;
+            }
+            sync_cursor(&state);
+        } else if (ch == KEY_DOWN) {
+            char* eb = list_flatten((List*)state.editbuffer);
+            int total = line_count(&state);
+            int line = 0;
+            int col = 0;
+            pos_to_lc(eb, state.curpos, &line, &col);
+            if (line + 1 < total) {
+                int target_line = line + 1;
+                int start = 0;
+                int l = 0;
+                if (eb != nullptr) {
+                    for (int i = 0; eb[i] != '\0'; ++i) {
+                        if (l == target_line) { start = i; break; }
+                        if (eb[i] == '\n') { ++l; }
+                    }
+                    if (l < target_line) {
+                        start = (eb != nullptr) ? (int)strlen(eb) : 0;
+                    }
+                }
+                int end = start;
+                while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
+                int line_len = end - start;
+                int new_col = (col < line_len) ? col : line_len;
+                state.curpos = start + new_col;
+                size_t len = (eb != nullptr) ? strlen(eb) : 0;
+                if ((size_t)state.curpos > len) { state.curpos = (int)len; }
+            }
+            sync_cursor(&state);
+        } else if (ch == KEY_HOME) {
+            char* eb = list_flatten((List*)state.editbuffer);
+            int line = 0;
+            int col = 0;
+            pos_to_lc(eb, state.curpos, &line, &col);
+            int start = 0;
+            int l = 0;
+            if (eb != nullptr) {
+                for (int i = 0; eb[i] != '\0'; ++i) {
+                    if (l == line) { start = i; break; }
+                    if (eb[i] == '\n') { ++l; }
+                }
+            }
+            state.curpos = start;
+            sync_cursor(&state);
+        } else if (ch == KEY_END) {
+            char* eb = list_flatten((List*)state.editbuffer);
+            int line = 0;
+            int col = 0;
+            pos_to_lc(eb, state.curpos, &line, &col);
+            int start = 0;
+            int l = 0;
+            if (eb != nullptr) {
+                for (int i = 0; eb[i] != '\0'; ++i) {
+                    if (l == line) { start = i; break; }
+                    if (eb[i] == '\n') { ++l; }
+                }
+            }
+            int end = start;
+            while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
+            state.curpos = end;
+            sync_cursor(&state);
+        } else if (ch == 23) { // C-w
+            save(&state);
+        } else if (ch == 1) { // C-a
+            state.append_mode = !state.append_mode;
+            sync_cursor(&state);
+        } else if (ch == 27) { // ESC
+            state.append_mode = false;
+            sync_cursor(&state);
+        } else if (state.append_mode && (ch == KEY_ENTER || ch == 10 || ch == 13 || ch == '\n')) {
+            chadd((List*)state.editbuffer, "\n", state.curpos);
+            state.curpos++;
+            sync_cursor(&state);
+        } else if (state.append_mode && ch == 9) { // TAB
+            chadd((List*)state.editbuffer, "\t", state.curpos);
+            state.curpos++;
+            sync_cursor(&state);
+        } else if (state.append_mode && ch >= 32 && ch <= 126) {
+            char buf[2];
+            buf[0] = (char)ch;
+            buf[1] = '\0';
+            chadd((List*)state.editbuffer, buf, state.curpos);
+            state.curpos++;
+            sync_cursor(&state);
         }
+
         update(srtstate, text, &state);
         mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, NULL);
         wrefresh(text);

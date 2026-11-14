@@ -1,5 +1,1 @@
 main
-tests/tests
-*.gcda
-*.gcno
-*.gcov
