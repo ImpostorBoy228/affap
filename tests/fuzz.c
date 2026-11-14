@@ -37,7 +37,7 @@ static int fuzz_ioffset_linecount(void) {
         fuzz_bytes(buf, n);
         mt state;
         memset(&state, 0, sizeof(state));
-        state.editbuffer = buf;
+        state.editbuffer = narezka(strdup(buf));
 
         int lc = line_count(&state);
         if (lc < 1) return 1;
@@ -96,14 +96,14 @@ static int fuzz_bootstap(void) {
         mock_cols = (int)(fuzz_rand() % 200) + 1;
         mt state = {0};
         bootstap_mt(&state, WIN_TEXT, path);
-        if (state.max_x != mock_cols) { free(state.editbuffer); free(path); return 21; }
-        if (state.max_y != mock_rows) { free(state.editbuffer); free(path); return 22; }
+        if (state.max_x != mock_cols) { free_list(state.editbuffer); free(path); return 21; }
+        if (state.max_y != mock_rows) { free_list(state.editbuffer); free(path); return 22; }
         if (state.editbuffer != nullptr) {
             /* must be NUL terminated */
             /* strlen should be safe */
-            (void)strlen(state.editbuffer);
+            (void)strlen(state.editbuffer ? state.editbuffer->str : "");
         }
-        free(state.editbuffer);
+        free_list(state.editbuffer);
         free(path);
     }
     return 0;
@@ -172,7 +172,7 @@ static int fuzz_update_render(void) {
         fuzz_bytes(buf, n);
         mt state;
         memset(&state, 0, sizeof(state));
-        state.editbuffer = buf;
+        state.editbuffer = narezka(strdup(buf));
         state.path = buf; /* alias okay for read-only usage? update_srtstate uses path for printing; fine */
         state.scroll = (int)(fuzz_rand() % 10) - 3;
 

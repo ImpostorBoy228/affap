@@ -89,7 +89,7 @@ static void test_ioffset_scroll(void) {
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 5) == 0);
 
-    state.editbuffer = (char *)"a\nb\nc";
+    state.editbuffer = narezka(strdup("a\nb\nc"));
     CHECK(ioffset_scroll(&state, -1) == 0);
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 2);
@@ -97,11 +97,11 @@ static void test_ioffset_scroll(void) {
     CHECK(ioffset_scroll(&state, 3) == 0);
     CHECK(ioffset_scroll(&state, 42) == 0);
 
-    state.editbuffer = (char *)"";
+    state.editbuffer = narezka(strdup(""));
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 0);
 
-    state.editbuffer = (char *)"no newlines";
+    state.editbuffer = narezka(strdup("no newlines"));
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 0);
 
@@ -114,7 +114,7 @@ static void test_ioffset_scroll(void) {
         const char *samples[] = {"", "a", "a\n", "\n", "\n\n", "a\nb\nc\nd",
                                  "trailing\n"};
         for (size_t s = 0; s < sizeof(samples)/sizeof(samples[0]); s++) {
-            state.editbuffer = (char *)samples[s];
+            state.editbuffer = narezka(strdup(samples[s]));
             int lc = line_count(&state);
             for (int ln = 0; ln <= lc + 2; ln++) {
                 size_t off = ioffset_scroll(&state, ln);
@@ -129,19 +129,19 @@ static void test_line_count(void) {
 
     CHECK(line_count(&state) == 1);
 
-    state.editbuffer = (char *)"";
+    state.editbuffer = narezka(strdup(""));
     CHECK(line_count(&state) == 1);
 
-    state.editbuffer = (char *)"a";
+    state.editbuffer = narezka(strdup("a"));
     CHECK(line_count(&state) == 1);
 
-    state.editbuffer = (char *)"a\n";
+    state.editbuffer = narezka(strdup("a\n"));
     CHECK(line_count(&state) == 2);
 
-    state.editbuffer = (char *)"a\nb\n";
+    state.editbuffer = narezka(strdup("a\nb\n"));
     CHECK(line_count(&state) == 3);
 
-    state.editbuffer = (char *)"\n\n\n";
+    state.editbuffer = narezka(strdup("\n\n\n"));
     CHECK(line_count(&state) == 4);
 
     /* property: line_count >= 1 always */
@@ -173,10 +173,10 @@ static void test_bootstap_mt(void) {
     CHECK(state.path == path);
     CHECK(state.editbuffer != nullptr);
     if (state.editbuffer != nullptr) {
-        CHECK_STR("first\nsecond", state.editbuffer);
+        CHECK_STR("first\nsecond", state.editbuffer ? state.editbuffer->str : nullptr);
     }
 
-    free(state.editbuffer);
+    free_list(state.editbuffer);
     unlink(path);
     free(path);
 
@@ -186,7 +186,7 @@ static void test_bootstap_mt(void) {
     CHECK(state.max_y == 30);
     CHECK(state.editbuffer == nullptr);
     CHECK_STR("/definitely/does/not/exist", state.path);
-    free(state.editbuffer);
+    free_list(state.editbuffer);
 }
 
 /* ====================================================================== */
@@ -279,7 +279,7 @@ static void test_update_text(void) {
     mt state = {0};
 
     reset_all();
-    state.editbuffer = (char *)"line0\nline1\nline2";
+    state.editbuffer = narezka(strdup("line0\nline1\nline2"));
 
     update_text(WIN_TEXT, &state);
     CHECK(text_erased == 1);
@@ -313,7 +313,7 @@ static void test_update_text(void) {
     CHECK_STR("line0\nline1\nline2", cap_text);
 
     reset_all();
-    state.editbuffer = (char *)"";
+    state.editbuffer = narezka(strdup(""));
     state.scroll = 0;
     update_text(WIN_TEXT, &state);
     CHECK_STR("", cap_text);
@@ -329,7 +329,7 @@ static void test_update(void) {
     reset_all();
     mock_cols = 16;
     state.path = "file.txt";
-    state.editbuffer = (char *)"alpha\nbeta";
+    state.editbuffer = narezka(strdup("alpha\nbeta"));
     state.scroll = 1;
 
     update(WIN_STATUS, WIN_TEXT, &state);
@@ -603,20 +603,20 @@ static void test_main_multiple_resizes(void) {
 static void test_ioffset_exact(void) {
     const char *buf = "ab\ncd\nef";
     mt state = {0};
-    state.editbuffer = (char *)buf;
+    state.editbuffer = narezka(strdup(buf));
 
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 3);
     CHECK(ioffset_scroll(&state, 2) == 6);
 
     /* trailing newline */
-    state.editbuffer = (char *)"a\nb\n";
+    state.editbuffer = narezka(strdup("a\nb\n"));
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 2);
     CHECK(ioffset_scroll(&state, 2) == 4);
 
     /* empty lines */
-    state.editbuffer = (char *)"\n\n";
+    state.editbuffer = narezka(strdup("\n\n"));
     CHECK(ioffset_scroll(&state, 0) == 0);
     CHECK(ioffset_scroll(&state, 1) == 1);
     CHECK(ioffset_scroll(&state, 2) == 2);
@@ -634,7 +634,7 @@ static void test_line_count_large(void) {
         }
         buf[pos] = '\0';
         mt state = {0};
-        state.editbuffer = buf;
+        state.editbuffer = narezka(strdup(buf));
         CHECK(line_count(&state) == (int)n + 1);
         free(buf);
     }
@@ -731,7 +731,7 @@ static void test_fuzz_ioffset_no_crash(void) {
     mt state;
     for (size_t i = 0; i < sizeof(cases)/sizeof(cases[0]); i++) {
         memset(&state, 0, sizeof(state));
-        state.editbuffer = (char *)cases[i];
+        state.editbuffer = narezka(strdup(cases[i]));
         /* call for a range of line numbers */
         for (int ln = -5; ln <= 10; ln++) {
             size_t off = ioffset_scroll(&state, ln);

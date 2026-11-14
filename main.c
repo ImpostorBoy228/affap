@@ -4,6 +4,7 @@
 #include <string.h>
 #include <locale.h>
 #include <ncurses.h>
+#include "editbufferdatastruct.h"
 
 #define STATUS_FG 235
 #define STATUS_BG 103
@@ -23,7 +24,7 @@ typedef struct {
     int cur_y;
     int scroll;
 
-    char* editbuffer;
+    List* editbuffer;
     const char* path;
 } mt;
 
@@ -73,7 +74,7 @@ void bootstap_mt(mt* state, WINDOW* w, const char* f) {
         .cur_y = 0,
         .cur_x = 0,
         .path = f,
-        .editbuffer = fileread(f),
+        .editbuffer = narezka(fileread(f)),
     };
 }
 
@@ -91,22 +92,30 @@ static void init_colors(void) {
 
 size_t ioffset_scroll(const mt* state, int stn) {
     // returns offset of the first char of line stn (0-based)
-    const char* eb = state->editbuffer;
-    if (eb == nullptr || stn <= 0) {
+    if (state == nullptr || state->editbuffer == nullptr || stn <= 0) {
+        return 0;
+    }
+
+    char* eb = list_flatten((List*)state->editbuffer);
+    if (eb == nullptr) {
         return 0;
     }
 
     int curstn = 0;
     for (int i = 0; eb[i] != '\0'; ++i) {
         if (eb[i] == '\n' && ++curstn == stn) {
-            return i + 1; // next char after \n
+            return (size_t)(i + 1); // next char after \n
         }
     }
     return 0;
 }
 
 int line_count(const mt* state) {
-    const char* eb = state->editbuffer;
+    if (state == nullptr || state->editbuffer == nullptr) {
+        return 1;
+    }
+
+    char* eb = list_flatten((List*)state->editbuffer);
     if (eb == nullptr) {
         return 1;
     }
@@ -153,8 +162,15 @@ void update_srtstate(WINDOW* w, const mt* state) {
 void update_text(WINDOW* w, const mt* state) {
     werase(w);
     wattron(w, COLOR_PAIR(PAIR_TEXT));
-    mvwprintw(w, 0, 0, "%s",
-    state->editbuffer + ioffset_scroll(state, state->scroll));
+    char* flat = (state != nullptr && state->editbuffer != nullptr)
+                     ? list_flatten((List*)state->editbuffer)
+                     : nullptr;
+    size_t off = ioffset_scroll(state, state->scroll);
+    if (flat != nullptr && off <= strlen(flat)) {
+        mvwprintw(w, 0, 0, "%s", flat + off);
+    } else {
+        mvwprintw(w, 0, 0, "%s", "");
+    }
     wattroff(w, COLOR_PAIR(PAIR_TEXT));
     wrefresh(w);
 }
@@ -191,11 +207,10 @@ int main(int argc, char *argv[]) {
     refresh();
 
     bootstap_mt(&state, text, path);
-    if (state.editbuffer==nullptr) goto naxyi;
+    if (state.editbuffer == nullptr) goto naxyi;
 
     update(srtstate, text, &state);
 
-    // TODO implement vim
     int ch;
     while ((ch = getch()) != ERR) {
         switch (ch) {
@@ -229,6 +244,7 @@ int main(int argc, char *argv[]) {
                     }
                 }
         }
+        mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, NULL);
         update(srtstate, text, &state);
     }
 
@@ -238,13 +254,13 @@ int main(int argc, char *argv[]) {
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != nullptr) free(state.editbuffer);
+    if (state.editbuffer != nullptr) free_list((List*)state.editbuffer);
     return 0;
 
 naxyi:
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != nullptr) free(state.editbuffer);
+    if (state.editbuffer != nullptr) free_list((List*)state.editbuffer);
     return 666;
 }

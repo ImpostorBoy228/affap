@@ -158,7 +158,7 @@ static void bench_line_count(void) {
     buf[n] = '\0';
 
     mt state = {0};
-    state.editbuffer = buf;
+    state.editbuffer = narezka(strdup(buf));
 
     bench_result_t r;
     bench_result_init(&r, "line_count (1MiB, ~13k lines)", 0);
@@ -185,7 +185,7 @@ static void bench_ioffset_scroll(void) {
     buf[n] = '\0';
 
     mt state = {0};
-    state.editbuffer = buf;
+    state.editbuffer = narezka(strdup(buf));
     int total_lines = line_count(&state);
 
     bench_result_t r;
@@ -227,7 +227,7 @@ static void bench_update_text(void) {
     buf[n] = '\0';
 
     mt state = {0};
-    state.editbuffer = buf;
+    state.editbuffer = narezka(strdup(buf));
     state.scroll = 0;
 
     reset_all();
