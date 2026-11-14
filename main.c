@@ -4,7 +4,6 @@
 #include <string.h>
 #include <locale.h>
 #include <ncurses.h>
-#include "editbufferdatastruct.h"
 
 #define STATUS_FG 235
 #define STATUS_BG 103
@@ -148,7 +147,7 @@ Block* find_from_pos(List* list, int pos) {
     return list->tail;
 }
 
-void edit(List* list, char* ch, int index) {
+void chadd(List* list, char* ch, int index) {
     if (list == nullptr || ch == nullptr) { return; }
 
     char* base = list_flatten(list);
