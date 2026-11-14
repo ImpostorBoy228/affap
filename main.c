@@ -30,6 +30,8 @@ typedef struct List {
     char* cached;
 } List;
 
+void free_list(List* list);
+
 Block* create(char* data) {
     Block* ne = (Block*)malloc(sizeof(Block));
     if (ne == nullptr) { return nullptr; }
@@ -37,6 +39,10 @@ Block* create(char* data) {
         ne->buf = (char*)calloc(1, 1);
     } else {
         ne->buf = strdup(data);
+    }
+    if (ne->buf == nullptr) {
+        free(ne);
+        return nullptr;
     }
     ne->next = nullptr;
     ne->prev = nullptr;
@@ -48,10 +54,10 @@ List* init(void) {
     return ne;
 }
 
-void push(List* list, char* data) {
-    if (list == nullptr) { return; }
+int push(List* list, char* data) {
+    if (list == nullptr) { return 0; }
     Block* ne = create(data);
-    if (ne == nullptr) { return; }
+    if (ne == nullptr) { return 0; }
     if (list->tail == nullptr) {
         list->head = list->tail = ne;
     } else {
@@ -59,6 +65,7 @@ void push(List* list, char* data) {
         list->tail->next = ne;
         list->tail = ne;
     }
+    return 1;
 }
 
 static char* list_flatten(List* list) {
@@ -102,14 +109,14 @@ List* narezka(char* eb) {
         curbuf[cbp++] = eb[i];
         if (cbp == BLOCKSIZE) {
             curbuf[cbp] = '\0';
-            push(ro, curbuf);
+            if (push(ro, curbuf) == 0) { free_list(ro); return nullptr; }
             cbp = 0;
         }
     }
 
     if (cbp > 0 || eb[0] == '\0') {
         curbuf[cbp] = '\0';
-        push(ro, curbuf);
+        if (push(ro, curbuf) == 0) { free_list(ro); return nullptr; }
     }
 
     list_flatten(ro);
@@ -171,6 +178,16 @@ void chadd(List* list, char* ch, int index) {
         newstr[index + chlen] = '\0';
     }
 
+    List* tmp = narezka(newstr);
+    free(newstr);
+
+    if (tmp == nullptr || tmp->head == nullptr ||
+        tmp->cached == nullptr || strlen(tmp->cached) != len + chlen) {
+        // rebuild failed: keep the old list intact
+        free_list(tmp);
+        return;
+    }
+
     Block* b = list->head;
     while (b != nullptr) {
         Block* nxt = b->next;
@@ -178,21 +195,13 @@ void chadd(List* list, char* ch, int index) {
         free(b);
         b = nxt;
     }
-    list->head = nullptr;
-    list->tail = nullptr;
 
     free(list->cached);
-    list->cached = nullptr;
 
-    List* tmp = narezka(newstr);
-    free(newstr);
-
-    if (tmp != nullptr) {
-        list->head = tmp->head;
-        list->tail = tmp->tail;
-        list->cached = tmp->cached;
-        free(tmp);
-    }
+    list->head = tmp->head;
+    list->tail = tmp->tail;
+    list->cached = tmp->cached;
+    free(tmp);
 }
 
 void free_list(List* list) {
@@ -256,20 +265,25 @@ void filewrite(const char* f, char* eb) {
     if (file == nullptr) {
         return;
     }
-    fputs(eb, file);
+    if (eb != nullptr) {
+        fputs(eb, file);
+    }
+    fclose(file);
 }
 
 void bootstap_mt(mt* state, WINDOW* w, const char* f) {
     int row, col;
     getmaxyx(w, row, col);
+    char* raw = fileread(f);
     *state = (mt){
         .max_x = col,
         .max_y = row,
         .cur_y = 0,
         .cur_x = 0,
         .path = f,
-        .editbuffer = narezka(fileread(f)),
+        .editbuffer = narezka(raw),
     };
+    free(raw);
 }
 
 static void init_custom_pair(short pair, int fg, int bg) {
@@ -417,7 +431,7 @@ int main(int argc, char *argv[]) {
                 keypad(text, TRUE);
 
                 int max_y, max_x;
-                getmaxyx(stdscr, max_y, max_x);
+                getmaxyx(text, max_y, max_x);
                 state.max_y = max_y;
                 state.max_x = max_x;
                 break;
@@ -438,8 +452,9 @@ int main(int argc, char *argv[]) {
                     }
                 }
         }
-        mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, NULL);
         update(srtstate, text, &state);
+        mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, NULL);
+        wrefresh(text);
     }
 
     // getch();
