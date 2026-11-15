@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#include <time.h>
 #include <ncurses.h>
 
 #define STATUS_FG 235
@@ -159,6 +160,8 @@ typedef struct {
     size_t cached_scroll_off;
     bool scroll_off_valid;
 
+    bool hide_mode;
+
     Buffer* editbuffer;
     const char* path;
 } mt;
@@ -219,6 +222,7 @@ void bootstap_mt(mt* state, WINDOW* w, const char* f) {
         .cached_scroll = 0,
         .cached_scroll_off = 0,
         .scroll_off_valid = false,
+        .hide_mode = false,
         .append_mode = false,
         .path = f,
         .editbuffer = narezka(raw),
@@ -525,18 +529,32 @@ void update_text(WINDOW* w, mt* state) {
     if (flat != nullptr && off <= flatlen) {
         char* src = flat + off;
         size_t srclen = strlen(src);
-        char* buf = (char*)malloc(srclen + 1);
+        char* buf = (char*)malloc(srclen * 4 + 1);
         if (buf != nullptr) {
             size_t j = 0;
-            for (size_t i = 0; src[i] != '\0'; ++i) {
-                unsigned char ch = (unsigned char)src[i];
-                if (ch == '\t' || ch == '\n') {
-                    buf[j++] = (char)ch;
-                } else if (ch < 32 || ch == 127) {
-                    continue;
+            size_t i = 0;
+            while (src[i] != '\0') {
+                int sl = utf8_seq_len((unsigned char)src[i]);
+                if (i + (size_t)sl > srclen) sl = 1;
+                unsigned int cp = utf8_decode(src + i, sl);
+
+                if (cp == '\n' || cp == '\t' || cp == ' ') {
+                    memcpy(buf + j, src + i, (size_t)sl);
+                    j += (size_t)sl;
+                } else if (state != nullptr && state->hide_mode) {
+                    unsigned int r = 0x2800 + (unsigned int)(rand() % 256);
+                    buf[j++] = (char)(0xE0 | ((r >> 12) & 0x0F));
+                    buf[j++] = (char)(0x80 | ((r >> 6) & 0x3F));
+                    buf[j++] = (char)(0x80 | (r & 0x3F));
                 } else {
-                    buf[j++] = (char)ch;
+                    if (cp < 0x20 || cp == 0x7F) {
+                        /* skip control chars */
+                    } else {
+                        memcpy(buf + j, src + i, (size_t)sl);
+                        j += (size_t)sl;
+                    }
                 }
+                i += (size_t)sl;
             }
             buf[j] = '\0';
             mvwprintw(w, 0, 0, "%s", buf);
@@ -558,6 +576,7 @@ void update(WINDOW* strstate, WINDOW* text, mt* state) {
 
 int main(int argc, char *argv[]) {
     setlocale(LC_ALL, "");
+    srand((unsigned)time(NULL));
 
     mt state = {0};
 
@@ -605,6 +624,9 @@ int main(int argc, char *argv[]) {
             getmaxyx(text, max_y, max_x);
             state.max_y = max_y;
             state.max_x = max_x;
+            sync_cursor(&state);
+        } else if (ch == 8) { // C-h: toggle hide mode
+            state.hide_mode = !state.hide_mode;
             sync_cursor(&state);
         } else if (ch == KEY_MOUSE) {
             if (getmouse(&event) == OK) {
