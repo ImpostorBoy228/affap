@@ -587,7 +587,7 @@ int main(int argc, char *argv[]) {
 
 
     initscr();
-    cbreak();
+    raw();
     noecho();
     curs_set(0);
     keypad(stdscr, TRUE);
@@ -611,7 +611,7 @@ int main(int argc, char *argv[]) {
     int ch;
     while ((ch = getch()) != ERR) {
         if (ch == 3) { // C-c
-            goto naxyi;
+            goto quit_ok;
         } else if (ch == KEY_RESIZE) {
             delwin(text);
             delwin(srtstate);
@@ -774,6 +774,13 @@ int main(int argc, char *argv[]) {
     if (state.editbuffer != nullptr) free_list(state.editbuffer);
     return 0;
 
+quit_ok:
+    delwin(text);
+    delwin(srtstate);
+    endwin();
+    if (state.editbuffer != nullptr) free_list(state.editbuffer);
+    return 0;
+
 naxyi:
     delwin(text);
     delwin(srtstate);
@@ -781,3 +788,5 @@ naxyi:
     if (state.editbuffer != nullptr) free_list(state.editbuffer);
     return 666;
 }
+
+
