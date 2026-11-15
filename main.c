@@ -348,6 +348,51 @@ int line_count(const mt* state) {
 }
 
 
+static int utf8_seq_len(unsigned char c) {
+    if (c < 0x80) { return 1; }
+    if ((c & 0xE0) == 0xC0) { return 2; }
+    if ((c & 0xF0) == 0xE0) { return 3; }
+    if ((c & 0xF8) == 0xF0) { return 4; }
+    return 1;
+}
+
+static unsigned int utf8_decode(const char* s, int len) {
+    if (len <= 0) { return 0; }
+    unsigned char b0 = (unsigned char)s[0];
+    if (len == 1) { return b0; }
+    if (len == 2) {
+        return ((b0 & 0x1F) << 6) | ((unsigned char)s[1] & 0x3F);
+    }
+    if (len == 3) {
+        return ((b0 & 0x0F) << 12) | (((unsigned char)s[1] & 0x3F) << 6) |
+               ((unsigned char)s[2] & 0x3F);
+    }
+    return ((b0 & 0x07) << 18) | (((unsigned char)s[1] & 0x3F) << 12) |
+           (((unsigned char)s[2] & 0x3F) << 6) | ((unsigned char)s[3] & 0x3F);
+}
+
+static int codepoint_width(unsigned int cp) {
+    if (cp == 0) { return 0; }
+    if (cp < 0x20 || cp == 0x7F) { return 0; }
+    if (cp >= 0x1100 && (cp <= 0x115F || cp == 0x2329 || cp == 0x232A ||
+        (cp >= 0x2E80 && cp <= 0x321E && cp != 0x303F) ||
+        (cp >= 0x3400 && cp <= 0x4DBF) ||
+        (cp >= 0x4E00 && cp <= 0xA4C6) ||
+        (cp >= 0xA960 && cp <= 0xA97C) ||
+        (cp >= 0xAC00 && cp <= 0xD7FB) ||
+        (cp >= 0xF900 && cp <= 0xFAFF) ||
+        (cp >= 0xFE10 && cp <= 0xFE19) ||
+        (cp >= 0xFE30 && cp <= 0xFE6F) ||
+        (cp >= 0xFF01 && cp <= 0xFF60) ||
+        (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+        (cp >= 0x1B000 && cp <= 0x1B001) ||
+        (cp >= 0x1F200 && cp <= 0x1F251) ||
+        (cp >= 0x20000 && cp <= 0x3FFFD))) {
+        return 2;
+    }
+    return 1;
+}
+
 static void pos_to_lc(const char* s, int pos, int* line, int* col) {
     if (line != nullptr) { *line = 0; }
     if (col != nullptr) { *col = 0; }
@@ -362,16 +407,83 @@ static void pos_to_lc(const char* s, int pos, int* line, int* col) {
 
     int l = 0;
     int c = 0;
-    for (int i = 0; i < pos; ++i) {
+    int i = 0;
+    while (i < pos && s[i] != '\0') {
         if (s[i] == '\n') {
             ++l;
             c = 0;
+            ++i;
+        } else if (s[i] == '\t') {
+            c = (c / 8 + 1) * 8;
+            ++i;
         } else {
-            ++c;
+            int sl = utf8_seq_len((unsigned char)s[i]);
+            if (i + sl > pos) {
+                break;
+            }
+            unsigned int cp = utf8_decode(s + i, sl);
+            c += codepoint_width(cp);
+            i += sl;
         }
     }
     if (line != nullptr) { *line = l; }
     if (col != nullptr) { *col = c; }
+}
+
+static int line_visual_width(const char* p) {
+    int c = 0;
+    while (p != nullptr && *p != '\0' && *p != '\n') {
+        if (*p == '\t') {
+            c = (c / 8 + 1) * 8;
+            ++p;
+        } else {
+            int sl = utf8_seq_len((unsigned char)*p);
+            unsigned int cp = utf8_decode(p, sl);
+            c += codepoint_width(cp);
+            p += sl;
+        }
+    }
+    return c;
+}
+
+static int visual_rows_upto(const char* eb, int target_line, int max_x) {
+    if (eb == nullptr || target_line <= 0 || max_x <= 0) {
+        return 0;
+    }
+    int total = 0;
+    int line = 0;
+    const char* p = eb;
+    while (line < target_line && *p != '\0') {
+        int w = line_visual_width(p);
+        int r = (w == 0) ? 1 : ((w + max_x - 1) / max_x);
+        total += r;
+        while (*p != '\0' && *p != '\n') { ++p; }
+        if (*p == '\n') { ++p; }
+        ++line;
+    }
+    return total;
+}
+
+static int visual_col_to_offset(const char* line, int target_col) {
+    int c = 0;
+    int i = 0;
+    if (line == nullptr || target_col <= 0) { return 0; }
+    while (line[i] != '\0' && line[i] != '\n') {
+        int w = 0;
+        int sl = 1;
+        if (line[i] == '\t') {
+            w = (c / 8 + 1) * 8 - c;
+            sl = 1;
+        } else {
+            sl = utf8_seq_len((unsigned char)line[i]);
+            unsigned int cp = utf8_decode(line + i, sl);
+            w = codepoint_width(cp);
+        }
+        if (c + w > target_col) { break; }
+        c += w;
+        i += sl;
+    }
+    return i;
 }
 
 static void sync_cursor(mt* state) {
@@ -390,11 +502,17 @@ static void sync_cursor(mt* state) {
     if (state->max_y <= 0) { state->max_y = 1; }
     if (state->max_x <= 0) { state->max_x = 1; }
 
+    int Vcursor = visual_rows_upto(eb, line, state->max_x) + (col / state->max_x);
+
     if (line < state->scroll) {
         state->scroll = line;
     }
-    if (line >= state->scroll + state->max_y) {
-        state->scroll = line - state->max_y + 1;
+    while (state->scroll < line &&
+           visual_rows_upto(eb, state->scroll, state->max_x) + state->max_y <= Vcursor) {
+        ++state->scroll;
+    }
+    if (visual_rows_upto(eb, state->scroll, state->max_x) + state->max_y <= Vcursor) {
+        state->scroll = line;
     }
     if (state->scroll < 0) { state->scroll = 0; }
 
@@ -405,9 +523,9 @@ static void sync_cursor(mt* state) {
     }
     if (state->scroll < 0) { state->scroll = 0; }
 
-    pos_to_lc(eb, state->curpos, &line, &col);
-    state->cur_y = line - state->scroll;
-    state->cur_x = col;
+    int Vscroll = visual_rows_upto(eb, state->scroll, state->max_x);
+    state->cur_y = Vcursor - Vscroll;
+    state->cur_x = col % state->max_x;
 
     if (state->cur_y < 0) { state->cur_y = 0; }
     if (state->cur_y >= state->max_y) { state->cur_y = state->max_y - 1; }
@@ -465,7 +583,27 @@ void update_text(WINDOW* w, const mt* state) {
                      : nullptr;
     size_t off = ioffset_scroll(state, state->scroll);
     if (flat != nullptr && off <= strlen(flat)) {
-        mvwprintw(w, 0, 0, "%s", flat + off);
+        char* src = flat + off;
+        size_t srclen = strlen(src);
+        char* buf = (char*)malloc(srclen + 1);
+        if (buf != nullptr) {
+            size_t j = 0;
+            for (size_t i = 0; src[i] != '\0'; ++i) {
+                unsigned char ch = (unsigned char)src[i];
+                if (ch == '\t' || ch == '\n') {
+                    buf[j++] = (char)ch;
+                } else if (ch < 32 || ch == 127) {
+                    continue;
+                } else {
+                    buf[j++] = (char)ch;
+                }
+            }
+            buf[j] = '\0';
+            mvwprintw(w, 0, 0, "%s", buf);
+            free(buf);
+        } else {
+            mvwprintw(w, 0, 0, "%s", src);
+        }
     } else {
         mvwprintw(w, 0, 0, "%s", "");
     }
@@ -508,6 +646,8 @@ int main(int argc, char *argv[]) {
     if (state.editbuffer == nullptr) goto naxyi;
 
     update(srtstate, text, &state);
+    mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, nullptr);
+    wrefresh(text);
 
     int ch;
     while ((ch = getch()) != ERR) {
@@ -544,20 +684,36 @@ int main(int argc, char *argv[]) {
                 int line = 0;
                 int col = 0;
                 pos_to_lc(eb, state.curpos, &line, &col);
-                state.cur_y = line - state.scroll;
-                state.cur_x = col;
+                if (state.max_x <= 0) { state.max_x = 1; }
+                if (state.max_y <= 0) { state.max_y = 1; }
+                int Vcursor = visual_rows_upto(eb, line, state.max_x) + (col / state.max_x);
+                int Vscroll = visual_rows_upto(eb, state.scroll, state.max_x);
+                state.cur_y = Vcursor - Vscroll;
+                state.cur_x = col % state.max_x;
                 if (state.cur_y < 0) { state.cur_y = 0; }
-                if (state.cur_y >= state.max_y && state.max_y > 0) { state.cur_y = state.max_y - 1; }
+                if (state.cur_y >= state.max_y) { state.cur_y = state.max_y - 1; }
                 if (state.cur_x < 0) { state.cur_x = 0; }
-                if (state.cur_x >= state.max_x && state.max_x > 0) { state.cur_x = state.max_x - 1; }
+                if (state.cur_x >= state.max_x) { state.cur_x = state.max_x - 1; }
             }
         } else if (ch == KEY_LEFT) {
-            if (state.curpos > 0) { state.curpos--; }
+            char* eb = list_flatten((List*)state.editbuffer);
+            if (state.curpos > 0) {
+                --state.curpos;
+                while (state.curpos > 0 && eb != nullptr &&
+                       (unsigned char)eb[state.curpos] >= 0x80 &&
+                       (unsigned char)eb[state.curpos] <= 0xBF) {
+                    --state.curpos;
+                }
+            }
             sync_cursor(&state);
         } else if (ch == KEY_RIGHT) {
             char* eb = list_flatten((List*)state.editbuffer);
             size_t len = (eb != nullptr) ? strlen(eb) : 0;
-            if ((size_t)state.curpos < len) { state.curpos++; }
+            if ((size_t)state.curpos < len) {
+                int sl = utf8_seq_len((unsigned char)eb[state.curpos]);
+                if ((size_t)(state.curpos + sl) > len) { sl = 1; }
+                state.curpos += sl;
+            }
             sync_cursor(&state);
         } else if (ch == KEY_UP) {
             char* eb = list_flatten((List*)state.editbuffer);
@@ -575,11 +731,8 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
-                int end = start;
-                while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
-                int line_len = end - start;
-                int new_col = (col < line_len) ? col : line_len;
-                state.curpos = start + new_col;
+                int new_off = visual_col_to_offset(eb + start, col);
+                state.curpos = start + new_off;
             }
             sync_cursor(&state);
         } else if (ch == KEY_DOWN) {
@@ -599,11 +752,8 @@ int main(int argc, char *argv[]) {
                     }
                 }
                 if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
-                int end = start;
-                while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
-                int line_len = end - start;
-                int new_col = (col < line_len) ? col : line_len;
-                state.curpos = start + new_col;
+                int new_off = visual_col_to_offset(eb + start, col);
+                state.curpos = start + new_off;
             }
             size_t len = (eb != nullptr) ? strlen(eb) : 0;
             if ((size_t)state.curpos > len) { state.curpos = (int)len; }
@@ -624,7 +774,7 @@ int main(int argc, char *argv[]) {
             chadd((List*)state.editbuffer, "\t", state.curpos);
             state.curpos++;
             sync_cursor(&state);
-        } else if (state.append_mode && ch >= 32 && ch <= 126) {
+        } else if (state.append_mode && ch >= 32 && ch != 127) {
             char buf[2];
             buf[0] = (char)ch;
             buf[1] = '\0';
