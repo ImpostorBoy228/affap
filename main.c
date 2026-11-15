@@ -1,8 +1,8 @@
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <locale.h>
 #include <ncurses.h>
 
@@ -416,10 +416,14 @@ static void sync_cursor(mt* state) {
 }
 
 void save(mt* state) {
-    if (state == nullptr || state->path == nullptr) {
+    if (state == nullptr || state->path == nullptr || state->editbuffer == nullptr) {
         return;
     }
-    filewrite(state->path, list_flatten((List*)state->editbuffer));
+    char* flat = list_flatten((List*)state->editbuffer);
+    if (flat == nullptr) {
+        return;
+    }
+    filewrite(state->path, flat);
 }
 
 
@@ -507,7 +511,9 @@ int main(int argc, char *argv[]) {
 
     int ch;
     while ((ch = getch()) != ERR) {
-        if (ch == KEY_RESIZE) {
+        if (ch == 3) { // C-c
+            goto naxyi;
+        } else if (ch == KEY_RESIZE) {
             delwin(text);
             delwin(srtstate);
 
@@ -560,7 +566,7 @@ int main(int argc, char *argv[]) {
             pos_to_lc(eb, state.curpos, &line, &col);
             if (line > 0) {
                 int target_line = line - 1;
-                int start = 0;
+                int start = -1;
                 int l = 0;
                 if (eb != nullptr) {
                     for (int i = 0; eb[i] != '\0'; ++i) {
@@ -568,6 +574,7 @@ int main(int argc, char *argv[]) {
                         if (eb[i] == '\n') { ++l; }
                     }
                 }
+                if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
                 int end = start;
                 while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
                 int line_len = end - start;
@@ -583,57 +590,23 @@ int main(int argc, char *argv[]) {
             pos_to_lc(eb, state.curpos, &line, &col);
             if (line + 1 < total) {
                 int target_line = line + 1;
-                int start = 0;
+                int start = -1;
                 int l = 0;
                 if (eb != nullptr) {
                     for (int i = 0; eb[i] != '\0'; ++i) {
                         if (l == target_line) { start = i; break; }
                         if (eb[i] == '\n') { ++l; }
                     }
-                    if (l < target_line) {
-                        start = (eb != nullptr) ? (int)strlen(eb) : 0;
-                    }
                 }
+                if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
                 int end = start;
                 while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
                 int line_len = end - start;
                 int new_col = (col < line_len) ? col : line_len;
                 state.curpos = start + new_col;
-                size_t len = (eb != nullptr) ? strlen(eb) : 0;
-                if ((size_t)state.curpos > len) { state.curpos = (int)len; }
             }
-            sync_cursor(&state);
-        } else if (ch == KEY_HOME) {
-            char* eb = list_flatten((List*)state.editbuffer);
-            int line = 0;
-            int col = 0;
-            pos_to_lc(eb, state.curpos, &line, &col);
-            int start = 0;
-            int l = 0;
-            if (eb != nullptr) {
-                for (int i = 0; eb[i] != '\0'; ++i) {
-                    if (l == line) { start = i; break; }
-                    if (eb[i] == '\n') { ++l; }
-                }
-            }
-            state.curpos = start;
-            sync_cursor(&state);
-        } else if (ch == KEY_END) {
-            char* eb = list_flatten((List*)state.editbuffer);
-            int line = 0;
-            int col = 0;
-            pos_to_lc(eb, state.curpos, &line, &col);
-            int start = 0;
-            int l = 0;
-            if (eb != nullptr) {
-                for (int i = 0; eb[i] != '\0'; ++i) {
-                    if (l == line) { start = i; break; }
-                    if (eb[i] == '\n') { ++l; }
-                }
-            }
-            int end = start;
-            while (eb != nullptr && eb[end] != '\0' && eb[end] != '\n') { ++end; }
-            state.curpos = end;
+            size_t len = (eb != nullptr) ? strlen(eb) : 0;
+            if ((size_t)state.curpos > len) { state.curpos = (int)len; }
             sync_cursor(&state);
         } else if (ch == 23) { // C-w
             save(&state);
@@ -661,7 +634,7 @@ int main(int argc, char *argv[]) {
         }
 
         update(srtstate, text, &state);
-        mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, NULL);
+        mvwchgat(text, state.cur_y, state.cur_x, 1, A_REVERSE, 0, nullptr);
         wrefresh(text);
     }
 
