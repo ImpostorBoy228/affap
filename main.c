@@ -16,206 +16,130 @@
 
 #define SCROLL_S 1
 
-/// BEGIN EBDS
-#define BLOCKSIZE 1024
+/// BEGIN EBDS (gap buffer)
+typedef struct Buffer {
+    char* data;
+    size_t total_cap;
+    size_t gap_start;
+    size_t gap_size;
+    size_t size;      // logical length
+    int lines;
+    // cached contiguous view
+    char* flat;
+    bool flat_valid;
+} Buffer;
 
-typedef struct Block {
-    char* buf;
-    struct Block* next;
-    struct Block* prev;
-} Block;
+static inline size_t buf_gap_end(const Buffer* b) { return b->gap_start + b->gap_size; }
 
-typedef struct List {
-    Block* head;
-    Block* tail;
-    char* cached;
-} List;
+static inline char buf_char_at(const Buffer* b, size_t i) {
+    if (i < b->gap_start) return b->data[i];
+    return b->data[i + b->gap_size];
+}
 
-void free_list(List* list);
+static char* buf_flatten(Buffer* b) {
+    if (b == nullptr) return nullptr;
+    if (b->flat_valid && b->flat != nullptr) return b->flat;
+    free(b->flat);
+    b->flat = (char*)malloc(b->size + 1);
+    if (b->flat == nullptr) return nullptr;
+    memcpy(b->flat, b->data, b->gap_start);
+    memcpy(b->flat + b->gap_start, b->data + buf_gap_end(b), b->size - b->gap_start);
+    b->flat[b->size] = '\0';
+    b->flat_valid = true;
+    return b->flat;
+}
 
-Block* create(char* data) {
-    Block* ne = (Block*)malloc(sizeof(Block));
-    if (ne == nullptr) { return nullptr; }
-    if (data == nullptr) {
-        ne->buf = (char*)calloc(1, 1);
+static inline char* list_flatten(Buffer* b) { return buf_flatten(b); }
+
+static void buf_grow(Buffer* b, size_t need) {
+    if (b->gap_size >= need) return;
+    size_t newcap = b->total_cap ? b->total_cap * 2 : 64;
+    while (newcap < b->size + need + 1) newcap *= 2;
+    if (newcap < b->size + need + 64) newcap = b->size + need + 64;
+    char* nd = (char*)malloc(newcap);
+    if (nd == nullptr) return;
+    // left part
+    memcpy(nd, b->data, b->gap_start);
+    // right part
+    size_t right_len = b->total_cap - buf_gap_end(b);
+    size_t new_gap_size = newcap - b->size;
+    memcpy(nd + b->gap_start + new_gap_size, b->data + buf_gap_end(b), right_len);
+    free(b->data);
+    b->data = nd;
+    b->total_cap = newcap;
+    b->gap_size = new_gap_size;
+    b->flat_valid = false;
+}
+
+static void buf_move_gap(Buffer* b, size_t pos) {
+    if (pos == b->gap_start) return;
+    if (pos < b->gap_start) {
+        size_t n = b->gap_start - pos;
+        memmove(b->data + pos + b->gap_size, b->data + pos, n);
+        b->gap_start = pos;
     } else {
-        ne->buf = strdup(data);
+        size_t n = pos - b->gap_start;
+        memmove(b->data + b->gap_start, b->data + buf_gap_end(b), n);
+        b->gap_start = pos;
     }
-    if (ne->buf == nullptr) {
-        free(ne);
-        return nullptr;
-    }
-    ne->next = nullptr;
-    ne->prev = nullptr;
-    return ne;
+    b->flat_valid = false;
 }
 
-List* init(void) {
-    List* ne = (List*)calloc(1, sizeof(List));
-    return ne;
+static Buffer* buf_create(const char* s) {
+    size_t len = (s != nullptr) ? strlen(s) : 0;
+    size_t cap = len + 64;
+    if (cap < 64) cap = 64;
+    Buffer* b = (Buffer*)calloc(1, sizeof(Buffer));
+    if (b == nullptr) return nullptr;
+    b->data = (char*)malloc(cap);
+    if (b->data == nullptr) { free(b); return nullptr; }
+    if (s != nullptr && len > 0) memcpy(b->data, s, len);
+    b->total_cap = cap;
+    b->gap_start = len;
+    b->gap_size = cap - len;
+    b->size = len;
+    b->flat = nullptr;
+    b->flat_valid = false;
+    int ln = 1;
+    for (size_t i = 0; i < len; ++i) if (s[i] == '\n') ++ln;
+    b->lines = ln;
+    return b;
 }
 
-int push(List* list, char* data) {
-    if (list == nullptr) { return 0; }
-    Block* ne = create(data);
-    if (ne == nullptr) { return 0; }
-    if (list->tail == nullptr) {
-        list->head = list->tail = ne;
-    } else {
-        ne->prev = list->tail;
-        list->tail->next = ne;
-        list->tail = ne;
-    }
-    return 1;
+Buffer* narezka(char* eb) {
+    if (eb == nullptr) return nullptr;
+    return buf_create(eb);
 }
 
-static char* list_flatten(List* list) {
-    if (list == nullptr) { return nullptr; }
-    if (list->cached != nullptr) { return list->cached; }
-
-    size_t total = 0;
-    for (Block* b = list->head; b != nullptr; b = b->next) {
-        if (b->buf != nullptr) {
-            total += strlen(b->buf);
-        }
-    }
-
-    char* s = (char*)malloc(total + 1);
-    if (s == nullptr) { return nullptr; }
-
-    size_t off = 0;
-    for (Block* b = list->head; b != nullptr; b = b->next) {
-        if (b->buf != nullptr) {
-            size_t l = strlen(b->buf);
-            memcpy(s + off, b->buf, l);
-            off += l;
-        }
-    }
-    s[total] = '\0';
-
-    list->cached = s;
-    return s;
-}
-
-List* narezka(char* eb) {
-    if (eb == nullptr) { return nullptr; }
-
-    List* ro = init();
-    if (ro == nullptr) { return nullptr; }
-
-    char curbuf[BLOCKSIZE + 1];
-    int cbp = 0;
-
-    for (int i = 0; eb[i] != '\0'; ++i) {
-        curbuf[cbp++] = eb[i];
-        if (cbp == BLOCKSIZE) {
-            curbuf[cbp] = '\0';
-            if (push(ro, curbuf) == 0) { free_list(ro); return nullptr; }
-            cbp = 0;
-        }
-    }
-
-    if (cbp > 0 || eb[0] == '\0') {
-        curbuf[cbp] = '\0';
-        if (push(ro, curbuf) == 0) { free_list(ro); return nullptr; }
-    }
-
-    list_flatten(ro);
-    return ro;
-}
-
-Block* find_from_pos(List* list, int pos) {
-    if (list == nullptr || list->head == nullptr || pos < 0) {
-        return nullptr;
-    }
-
-    size_t cum = 0;
-    Block* curr = list->head;
-
-    while (curr != nullptr) {
-        size_t len = (curr->buf != nullptr) ? strlen(curr->buf) : 0;
-
-        if (pos < (int)(cum + len)) {
-            return curr;
-        }
-
-        if (pos == (int)(cum + len)) {
-            if (curr->next != nullptr) {
-                cum += len;
-                curr = curr->next;
-                continue;
-            }
-            return curr;
-        }
-
-        cum += len;
-        curr = curr->next;
-    }
-
-    return list->tail;
-}
-
-void chadd(List* list, char* ch, int index) {
-    if (list == nullptr || ch == nullptr) { return; }
-
-    char* base = list_flatten(list);
-    size_t len = (base != nullptr) ? strlen(base) : 0;
-
-    if (index < 0) { index = 0; }
-    if ((size_t)index > len) { index = (int)len; }
-
+void chadd(Buffer* b, char* ch, int index) {
+    if (b == nullptr || ch == nullptr) return;
     size_t chlen = strlen(ch);
+    if (chlen == 0) return;
 
-    char* newstr = (char*)malloc(len + chlen + 1);
-    if (newstr == nullptr) { return; }
+    size_t cur = b->size;
+    if (index < 0) index = 0;
+    if ((size_t)index > cur) index = (int)cur;
 
-    if (base != nullptr) {
-        memcpy(newstr, base, (size_t)index);
-    }
-    memcpy(newstr + index, ch, chlen);
-    if (base != nullptr) {
-        memcpy(newstr + index + chlen, base + index, len - (size_t)index + 1);
-    } else {
-        newstr[index + chlen] = '\0';
-    }
+    if (b->gap_size < chlen) buf_grow(b, chlen);
+    if (b->gap_size < chlen) return; // grow failed
 
-    List* tmp = narezka(newstr);
-    free(newstr);
+    buf_move_gap(b, (size_t)index);
+    memcpy(b->data + b->gap_start, ch, chlen);
+    b->gap_start += chlen;
+    b->gap_size -= chlen;
+    b->size += chlen;
+    b->flat_valid = false;
 
-    if (tmp == nullptr || tmp->head == nullptr ||
-        tmp->cached == nullptr || strlen(tmp->cached) != len + chlen) {
-        // rebuild failed: keep the old list intact
-        free_list(tmp);
-        return;
-    }
-
-    Block* b = list->head;
-    while (b != nullptr) {
-        Block* nxt = b->next;
-        free(b->buf);
-        free(b);
-        b = nxt;
-    }
-
-    free(list->cached);
-
-    list->head = tmp->head;
-    list->tail = tmp->tail;
-    list->cached = tmp->cached;
-    free(tmp);
+    int addlines = 0;
+    for (size_t i = 0; i < chlen; ++i) if (ch[i] == '\n') ++addlines;
+    b->lines += addlines;
 }
 
-void free_list(List* list) {
-    if (list == nullptr) { return; }
-    Block* b = list->head;
-    while (b != nullptr) {
-        Block* nxt = b->next;
-        free(b->buf);
-        free(b);
-        b = nxt;
-    }
-    free(list->cached);
-    free(list);
+void free_list(Buffer* b) {
+    if (b == nullptr) return;
+    free(b->data);
+    free(b->flat);
+    free(b);
 }
 
 /// BEGIN MAIN
@@ -231,7 +155,11 @@ typedef struct {
     int curpos;
     int scroll;
 
-    List* editbuffer;
+    int cached_scroll;
+    size_t cached_scroll_off;
+    bool scroll_off_valid;
+
+    Buffer* editbuffer;
     const char* path;
 } mt;
 
@@ -288,6 +216,9 @@ void bootstap_mt(mt* state, WINDOW* w, const char* f) {
         .cur_x = 0,
         .curpos = 0,
         .scroll = 0,
+        .cached_scroll = 0,
+        .cached_scroll_off = 0,
+        .scroll_off_valid = false,
         .append_mode = false,
         .path = f,
         .editbuffer = narezka(raw),
@@ -308,23 +239,40 @@ static void init_colors(void) {
     init_custom_pair(PAIR_TEXT, TEXT_FG, TEXT_BG);
 }
 
-size_t ioffset_scroll(const mt* state, int stn) {
+size_t ioffset_scroll(mt* state, int stn) {
     // returns offset of the first char of line stn (0-based)
     if (state == nullptr || state->editbuffer == nullptr || stn <= 0) {
         return 0;
     }
 
-    char* eb = list_flatten((List*)state->editbuffer);
+    if (state->scroll_off_valid && state->cached_scroll == stn) {
+        return state->cached_scroll_off;
+    }
+
+    char* eb = list_flatten(state->editbuffer);
     if (eb == nullptr) {
         return 0;
     }
 
+    size_t __len = strlen(eb);
     int curstn = 0;
-    for (int i = 0; eb[i] != '\0'; ++i) {
-        if (eb[i] == '\n' && ++curstn == stn) {
-            return (size_t)(i + 1); // next char after \n
+    size_t i = 0;
+    while (i < __len && curstn < stn) {
+        char* nl = memchr(eb + i, '\n', __len - i);
+        if (nl == nullptr) break;
+        i = (size_t)(nl - eb) + 1;
+        ++curstn;
+        if (curstn == stn) {
+            state->cached_scroll = stn;
+            state->cached_scroll_off = i;
+            state->scroll_off_valid = true;
+            return i;
         }
     }
+
+    state->cached_scroll = stn;
+    state->cached_scroll_off = 0;
+    state->scroll_off_valid = true;
     return 0;
 }
 
@@ -332,19 +280,10 @@ int line_count(const mt* state) {
     if (state == nullptr || state->editbuffer == nullptr) {
         return 1;
     }
-
-    char* eb = list_flatten((List*)state->editbuffer);
-    if (eb == nullptr) {
+    if (state->editbuffer->lines < 1) {
         return 1;
     }
-
-    int lines = 1;
-    for (const char* p = eb; *p != '\0'; ++p) {
-        if (*p == '\n') {
-            lines++;
-        }
-    }
-    return lines;
+    return state->editbuffer->lines;
 }
 
 
@@ -489,7 +428,7 @@ static int visual_col_to_offset(const char* line, int target_col) {
 static void sync_cursor(mt* state) {
     if (state == nullptr) { return; }
 
-    char* eb = list_flatten((List*)state->editbuffer);
+    char* eb = list_flatten(state->editbuffer);
     size_t len = (eb != nullptr) ? strlen(eb) : 0;
 
     if (state->curpos < 0) { state->curpos = 0; }
@@ -537,7 +476,7 @@ void save(mt* state) {
     if (state == nullptr || state->path == nullptr || state->editbuffer == nullptr) {
         return;
     }
-    char* flat = list_flatten((List*)state->editbuffer);
+    char* flat = list_flatten(state->editbuffer);
     if (flat == nullptr) {
         return;
     }
@@ -575,14 +514,15 @@ void update_srtstate(WINDOW* w, const mt* state) {
     wrefresh(w);
 }
 
-void update_text(WINDOW* w, const mt* state) {
+void update_text(WINDOW* w, mt* state) {
     werase(w);
     wattron(w, COLOR_PAIR(PAIR_TEXT));
     char* flat = (state != nullptr && state->editbuffer != nullptr)
-                     ? list_flatten((List*)state->editbuffer)
+                     ? list_flatten(state->editbuffer)
                      : nullptr;
+    size_t flatlen = (flat != nullptr) ? strlen(flat) : 0;
     size_t off = ioffset_scroll(state, state->scroll);
-    if (flat != nullptr && off <= strlen(flat)) {
+    if (flat != nullptr && off <= flatlen) {
         char* src = flat + off;
         size_t srclen = strlen(src);
         char* buf = (char*)malloc(srclen + 1);
@@ -680,7 +620,7 @@ int main(int argc, char *argv[]) {
                         state.scroll = last;
                     }
                 }
-                char* eb = list_flatten((List*)state.editbuffer);
+                char* eb = list_flatten(state.editbuffer);
                 int line = 0;
                 int col = 0;
                 pos_to_lc(eb, state.curpos, &line, &col);
@@ -696,7 +636,7 @@ int main(int argc, char *argv[]) {
                 if (state.cur_x >= state.max_x) { state.cur_x = state.max_x - 1; }
             }
         } else if (ch == KEY_LEFT) {
-            char* eb = list_flatten((List*)state.editbuffer);
+            char* eb = list_flatten(state.editbuffer);
             if (state.curpos > 0) {
                 --state.curpos;
                 while (state.curpos > 0 && eb != nullptr &&
@@ -707,7 +647,7 @@ int main(int argc, char *argv[]) {
             }
             sync_cursor(&state);
         } else if (ch == KEY_RIGHT) {
-            char* eb = list_flatten((List*)state.editbuffer);
+            char* eb = list_flatten(state.editbuffer);
             size_t len = (eb != nullptr) ? strlen(eb) : 0;
             if ((size_t)state.curpos < len) {
                 int sl = utf8_seq_len((unsigned char)eb[state.curpos]);
@@ -716,42 +656,54 @@ int main(int argc, char *argv[]) {
             }
             sync_cursor(&state);
         } else if (ch == KEY_UP) {
-            char* eb = list_flatten((List*)state.editbuffer);
+            char* eb = list_flatten(state.editbuffer);
             int line = 0;
             int col = 0;
             pos_to_lc(eb, state.curpos, &line, &col);
             if (line > 0) {
                 int target_line = line - 1;
-                int start = -1;
-                int l = 0;
+                int start = 0;
                 if (eb != nullptr) {
-                    for (int i = 0; eb[i] != '\0'; ++i) {
-                        if (l == target_line) { start = i; break; }
-                        if (eb[i] == '\n') { ++l; }
+                    size_t len = strlen(eb);
+                    size_t i = 0;
+                    int l = 0;
+                    while (l < target_line && i < len) {
+                        char* nl = memchr(eb + i, '\n', len - i);
+                        if (nl == nullptr) break;
+                        i = (size_t)(nl - eb) + 1;
+                        ++l;
                     }
+                    start = (l == target_line) ? (int)i : (int)len;
+                } else {
+                    start = 0;
                 }
-                if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
                 int new_off = visual_col_to_offset(eb + start, col);
                 state.curpos = start + new_off;
             }
             sync_cursor(&state);
         } else if (ch == KEY_DOWN) {
-            char* eb = list_flatten((List*)state.editbuffer);
+            char* eb = list_flatten(state.editbuffer);
             int total = line_count(&state);
             int line = 0;
             int col = 0;
             pos_to_lc(eb, state.curpos, &line, &col);
             if (line + 1 < total) {
                 int target_line = line + 1;
-                int start = -1;
-                int l = 0;
+                int start = 0;
                 if (eb != nullptr) {
-                    for (int i = 0; eb[i] != '\0'; ++i) {
-                        if (l == target_line) { start = i; break; }
-                        if (eb[i] == '\n') { ++l; }
+                    size_t len = strlen(eb);
+                    size_t i = 0;
+                    int l = 0;
+                    while (l < target_line && i < len) {
+                        char* nl = memchr(eb + i, '\n', len - i);
+                        if (nl == nullptr) break;
+                        i = (size_t)(nl - eb) + 1;
+                        ++l;
                     }
+                    start = (l == target_line) ? (int)i : (int)len;
+                } else {
+                    start = 0;
                 }
-                if (start == -1) { start = (eb != nullptr) ? (int)strlen(eb) : 0; }
                 int new_off = visual_col_to_offset(eb + start, col);
                 state.curpos = start + new_off;
             }
@@ -767,19 +719,22 @@ int main(int argc, char *argv[]) {
             state.append_mode = false;
             sync_cursor(&state);
         } else if (state.append_mode && (ch == KEY_ENTER || ch == 10 || ch == 13 || ch == '\n')) {
-            chadd((List*)state.editbuffer, "\n", state.curpos);
+            chadd(state.editbuffer, "\n", state.curpos);
             state.curpos++;
+            state.scroll_off_valid = false;
             sync_cursor(&state);
         } else if (state.append_mode && ch == 9) { // TAB
-            chadd((List*)state.editbuffer, "\t", state.curpos);
+            chadd(state.editbuffer, "\t", state.curpos);
             state.curpos++;
+            state.scroll_off_valid = false;
             sync_cursor(&state);
         } else if (state.append_mode && ch >= 32 && ch != 127) {
             char buf[2];
             buf[0] = (char)ch;
             buf[1] = '\0';
-            chadd((List*)state.editbuffer, buf, state.curpos);
+            chadd(state.editbuffer, buf, state.curpos);
             state.curpos++;
+            state.scroll_off_valid = false;
             sync_cursor(&state);
         }
 
@@ -794,13 +749,13 @@ int main(int argc, char *argv[]) {
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != nullptr) free_list((List*)state.editbuffer);
+    if (state.editbuffer != nullptr) free_list(state.editbuffer);
     return 0;
 
 naxyi:
     delwin(text);
     delwin(srtstate);
     endwin();
-    if (state.editbuffer != nullptr) free_list((List*)state.editbuffer);
+    if (state.editbuffer != nullptr) free_list(state.editbuffer);
     return 666;
 }

@@ -1,5 +1,6 @@
 CC ?= gcc
-CFLAGS ?= -Wall -std=c23 -Wextra -O0 $(shell pkg-config --cflags ncursesw)
+CFLAGS ?= -Wall -std=c23 -Wextra -O3 -march=native -flto -DNDEBUG $(shell pkg-config --cflags ncursesw)
+LDFLAGS ?= -flto
 LDLIBS ?= $(shell pkg-config --libs ncursesw)
 
 .PHONY: all clean
@@ -7,7 +8,7 @@ LDLIBS ?= $(shell pkg-config --libs ncursesw)
 all: main
 
 main: main.c
-	$(CC) $(CFLAGS) -o main main.c $(LDLIBS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o main main.c $(LDLIBS)
 
 clean:
 	rm -f main
