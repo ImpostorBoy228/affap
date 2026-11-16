@@ -625,7 +625,7 @@ int main(int argc, char *argv[]) {
             state.max_y = max_y;
             state.max_x = max_x;
             sync_cursor(&state);
-        } else if (ch == 8) { // C-h: toggle hide mode
+        } else if (ch == 8 || ch == KEY_BACKSPACE) { // C-h: toggle hide mode
             state.hide_mode = !state.hide_mode;
             sync_cursor(&state);
         } else if (ch == KEY_MOUSE) {
